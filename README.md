@@ -88,6 +88,15 @@ bash stage_3_inference_det.sh  ## results into outputs/DDVQA/DDVQA_det_c40.jsonl
 bash stage_3_inference_exp.sh  ## results into outputs/DDVQA/DDVQA_exp_c40.jsonl 
 ```
 
+## Web UI (image / video upload)
+A single-process UI in `app/` that takes an image or a video, auto-crops the face, and returns a real/fake verdict, a fake probability, a per-frame score chart (video), and part-by-part explanations (skin, eyes, nose, mouth, eyebrows). It needs the same weights as Stage-3 inference and ~7.5 GB VRAM in 4-bit.
+
+```bash
+bash run_ui.sh             # http://127.0.0.1:7860
+bash run_ui.sh --share     # also prints a public gradio.live link
+python -m app.webui --mock # UI only, placeholder outputs, no GPU/weights needed
+```
+
 ## Gradio Demo:
 We set up our demo based on the awesome LLaVA repos at [link](https://github.com/haotian-liu/LLaVA?tab=readme-ov-file#demo).
 
