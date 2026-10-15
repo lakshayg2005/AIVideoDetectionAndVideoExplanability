@@ -39,12 +39,26 @@ def main(args):
     model_name = get_model_name_from_path(args.model_path)
     tokenizer, model, image_processor, context_len = load_deepfake_model(args.model_path, args.model_base, model_name, args.load_8bit, args.load_4bit, device=args.device)
     model.eval()
-    model = model.to('cuda')
-    model.load_deepfake_encoder(model.config.deepfake_model_path, verbose=True)    
+    if not (args.load_4bit or args.load_8bit):
+        model = model.to('cuda')
+    model.load_deepfake_encoder(model.config.deepfake_model_path, verbose=True)
+    model.deepfake_encoder.to('cuda', dtype=torch.float16)    
 
     eccv_dataset_root = './utils/DDVQA_images/c40/test'
     out_dir = 'outputs/DDVQA'
     os.makedirs(out_dir, exist_ok=True)
+    out_file = os.path.join(out_dir, 'DDVQA_det_c40.jsonl')
+    processed_images = set()
+    if os.path.exists(out_file):
+        with open(out_file, 'r') as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    if 'image' in data:
+                        processed_images.add(data['image'])
+                except Exception:
+                    pass
+    print(f"Resuming: found {len(processed_images)} already processed images in {out_file}.")
 
     # Get list of all images in dataset root
     image_files = []
@@ -71,9 +85,9 @@ def main(args):
     else:
         args.conv_mode = conv_mode
     
-    # with open(json_path, 'r') as f:
-    #     for image_idx, line in enumerate(tqdm(f)):
     for image_idx, image_fn in enumerate(tqdm(image_files)):
+        if image_fn in processed_images:
+            continue
         image_path = image_fn
         image = load_image(image_path)
         image_size = image.size

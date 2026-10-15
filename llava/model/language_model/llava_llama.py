@@ -611,9 +611,9 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
             # deepfake_encoder_name=config.deepfake_model_name,
             vision_model_name=config.mm_vision_tower,
             text_model_name=config.mm_vision_tower,
-            vision_dtype=torch.bfloat16,
-            text_dtype=torch.bfloat16,
-            deepfake_dtype=torch.bfloat16,
+            vision_dtype=torch.float16,
+            text_dtype=torch.float16,
+            deepfake_dtype=torch.float16,
             load_vision_encoder=False,
             pretrained=False
         )
@@ -623,9 +623,11 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
             p.requires_grad = False
         self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=2)
         # Initialize weights and apply final processing
+        vt = self.get_vision_tower()
+        ip = getattr(vt, 'image_processor', None) if vt is not None else None
         self.processors = {
-            "clip_processor": self.get_vision_tower().image_processor,
-            "deepfake_processor": self.get_vision_tower().image_processor,
+            "clip_processor": ip,
+            "deepfake_processor": ip,
         }
         if self.config.mm_vision_select_feature != "cls_patch":
             raise ValueError("Only cls_patch is supported for mm_vision_select_feature.")

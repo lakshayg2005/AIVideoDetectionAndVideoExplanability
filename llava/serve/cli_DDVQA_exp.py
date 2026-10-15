@@ -39,12 +39,27 @@ def main(args):
     model_name = get_model_name_from_path(args.model_path)
     tokenizer, model, image_processor, context_len = load_deepfake_model(args.model_path, args.model_base, model_name, args.load_8bit, args.load_4bit, device=args.device)
     model.eval()
-    model = model.to('cuda')
-    model.load_deepfake_encoder(model.config.deepfake_model_path, verbose=True)    
+    if not (args.load_4bit or args.load_8bit):
+        model = model.to('cuda')
+    model.load_deepfake_encoder(model.config.deepfake_model_path, verbose=True)
+    model.deepfake_encoder.to('cuda', dtype=torch.float16)
 
     eccv_dataset_root = './utils/DDVQA_images/c40/test'
     out_dir = 'outputs/DDVQA'
     os.makedirs(out_dir, exist_ok=True)
+    out_file = os.path.join(out_dir, 'DDVQA_exp_c40.jsonl')
+
+    processed_keys = set()
+    if os.path.exists(out_file):
+        with open(out_file, 'r') as f:
+            for line in f:
+                try:
+                    data = json.loads(line)
+                    if 'key' in data:
+                        processed_keys.add(data['key'])
+                except Exception:
+                    pass
+    print(f"Resuming: found {len(processed_keys)} already processed samples in {out_file}.")
 
     json_path = './utils/DDVQA_eval/c40/test.jsonl'
 
@@ -68,9 +83,12 @@ def main(args):
     
 
     with open(json_path, 'r') as f:
-        for image_idx, line in enumerate(tqdm(f)):
+        for image_idx, line in enumerate(tqdm(f, total=1070)):
             data = json.loads(line)
             key = list(data.keys())[0]
+            if key in processed_keys:
+                continue
+
             img_id = "_".join(key.split('_')[:-1])
             image_fn = img_id + ".jpg"
             image_path = eccv_dataset_root+f"/{image_fn}"
@@ -103,8 +121,9 @@ def main(args):
                 # "model_id": model_id,
                 "metadata": {}
             }
-            with open(os.path.join(out_dir, 'DDVQA_exp_c40.jsonl'), 'a') as f:
-                f.write(json.dumps(answer) + '\n')
+            with open(out_file, 'a') as f_out:
+                f_out.write(json.dumps(answer) + '\n')
+                f_out.flush()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
