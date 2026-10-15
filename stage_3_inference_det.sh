@@ -1,9 +1,9 @@
 #!/bin/bash
-source ~/.bashrc
-conda activate M2F2_det
+source /home/user2/miniforge3/bin/activate M2F2_det
 current_path=$(pwd)
 export PYTHONPATH="$current_path:$PYTHONPATH"
 
 CUDA_NUM=0
 CUDA_VISIBLE_DEVICES=$CUDA_NUM python -m llava.serve.cli_DDVQA_det \
-    --model-path ./checkpoints/llava-v1.5-7b-M2F2-Det
+    --model-path ./checkpoints/llava-v1.5-7b-M2F2-Det \
+    --load-4bit

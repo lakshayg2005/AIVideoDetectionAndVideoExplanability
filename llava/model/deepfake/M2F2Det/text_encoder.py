@@ -28,8 +28,10 @@ class CLIPTextEncoder(nn.Module):
     ):
         if input_embeds is None:
             input_embeds = self.prompt_tokens
+        target_dtype = self.prompt_tokens.dtype
+        target_device = self.prompt_tokens.device
+        input_embeds = input_embeds.to(dtype=target_dtype, device=target_device)
         batch_size, seq_length = input_embeds.shape[:2]
-        input_embeds = input_embeds.to(self.dtype)
         
         # create position ids, attention masks
         # transformers.models.clip.modeling_clip#L688-736
