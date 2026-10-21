@@ -230,8 +230,13 @@ class LLaVATrainer(Trainer):
         #         print(param.shape)
         return self.optimizer
 
+    def _projector_only(self):
+        # only the projectors train (stage 2); with LoRA (stage 3) the adapter must be saved too
+        return ((getattr(self.args, 'tune_mm_mlp_adapter', False) or getattr(self.args, 'tune_deepfake_mlp_adapter', False))
+                and not getattr(self.args, 'lora_enable', False))
+
     def _save_checkpoint(self, model, trial, metrics=None):
-        if getattr(self.args, 'tune_mm_mlp_adapter', False):
+        if self._projector_only():
             from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
             checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}"
 
@@ -250,9 +255,15 @@ class LLaVATrainer(Trainer):
                 torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
         else:
             super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
+            if getattr(self.args, 'lora_enable', False) and self.args.should_save:
+                # the PEFT checkpoint holds only lora_* weights; keep the trained projectors with it
+                from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+                output_dir = os.path.join(self._get_output_dir(trial=trial), f"{PREFIX_CHECKPOINT_DIR}-{self.state.global_step}")
+                non_lora = {k: p.detach().cpu() for k, p in self.model.named_parameters() if p.requires_grad and 'lora_' not in k}
+                torch.save(non_lora, os.path.join(output_dir, 'non_lora_trainables.bin'))
 
     def _save(self, output_dir: Optional[str] = None, state_dict=None):
-        if getattr(self.args, 'tune_mm_mlp_adapter', False):
+        if self._projector_only():
             pass
         else:
             super(LLaVATrainer, self)._save(output_dir, state_dict)

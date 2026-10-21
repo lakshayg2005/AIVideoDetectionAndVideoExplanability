@@ -21,7 +21,7 @@ CUDA_VISIBLE_DEVICES=${CUDA_NUM:-0} python llava/train/train_deepfake.py \
     --output_dir ./checkpoints/llava-v1.5-7b-deepfake_stage-2-proj-qlora \
     --num_train_epochs 1 \
     --per_device_train_batch_size 4 --gradient_accumulation_steps 10 \
-    --evaluation_strategy no --save_strategy steps --save_steps 100 --save_total_limit 1 \
+    --evaluation_strategy no --save_strategy no \
     --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03 --lr_scheduler_type cosine \
     --logging_steps 1 --model_max_length 2048 --gradient_checkpointing True \
     --dataloader_num_workers 4 --lazy_preprocess True --report_to tensorboard "$@"

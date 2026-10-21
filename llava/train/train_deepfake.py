@@ -1077,6 +1077,12 @@ def train(attn_implementation=None):
                     **data_module)
 
     if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
+        last = transformers.trainer_utils.get_last_checkpoint(training_args.output_dir)
+        nl_path = os.path.join(last, 'non_lora_trainables.bin')
+        if os.path.exists(nl_path):    # projectors are not part of the PEFT adapter checkpoint
+            nl = torch.load(nl_path, map_location='cpu')
+            missing, unexpected = model.load_state_dict(nl, strict=False)
+            print(f'resume: restored {len(nl)} non-LoRA tensors from {nl_path} (unexpected: {len(unexpected)})')
         trainer.train(resume_from_checkpoint=True)
     else:
         trainer.train()
