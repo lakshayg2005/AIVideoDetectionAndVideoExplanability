@@ -1,10 +1,42 @@
 from pycocoevalcap.bleu.bleu import Bleu
 from pycocoevalcap.rouge.rouge import Rouge
 from pycocoevalcap.cider.cider import Cider
+from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.spice.spice import Spice
 import json
+import subprocess
 import numpy as np
 import argparse
+
+class SafeSpice():
+    """SPICE's scene-graph parser throws a NullPointerException on some sentences, which kills
+    the whole batch. Score in chunks and bisect failing chunks; the few unparseable answers are
+    left out of SPICE only (reported), all other metrics still use every answer."""
+
+    def __init__(self, chunk=16):
+        self.chunk = chunk
+        self.skipped = []
+
+    def _score(self, keys, gt, ref):
+        try:
+            _, scores = Spice().compute_score({k: gt[k] for k in keys}, {k: ref[k] for k in keys})
+            return [s['All']['f'] for s in scores]
+        except subprocess.CalledProcessError:
+            if len(keys) == 1:
+                self.skipped.append(keys[0])
+                return []
+            mid = len(keys) // 2
+            return self._score(keys[:mid], gt, ref) + self._score(keys[mid:], gt, ref)
+
+    def compute_score(self, gt, ref):
+        keys = sorted(ref)
+        f = []
+        for i in range(0, len(keys), self.chunk):
+            f += self._score(keys[i:i + self.chunk], gt, ref)
+        if self.skipped:
+            print(f'SPICE: skipped {len(self.skipped)} unparseable answers: {self.skipped}')
+        return float(np.mean(f)), f
+
 
 class Scorer():
     def __init__(self,ref,gt):
@@ -14,8 +46,9 @@ class Scorer():
         self.scorers = [
             (Bleu(4), ["Bleu_1", "Bleu_2", "Bleu_3", "Bleu_4"]),
             (Rouge(), "ROUGE_L"),
+            (Meteor(), "METEOR"),
             (Cider(), "CIDEr"),
-            (Spice(), "SPICE")
+            (SafeSpice(), "SPICE")
         ]
     
     def compute_scores(self):
@@ -27,6 +60,7 @@ class Scorer():
                     # print("%s: %0.4f"%(m, sc))
                     pass
                 total_scores["Bleu"] = np.mean(score)
+                total_scores["Bleu_4"] = score[3]
             else:
                 print("%s: %0.4f"%(method, score))
                 total_scores[method] = score
@@ -37,7 +71,8 @@ class Scorer():
 
 def sentence_cleaned(text):
     cleaned_text = text.replace("</s>", "").replace("<s>", "").replace("</n>", "").strip()
-    return cleaned_text
+    # METEOR talks to its jar one line per item: a newline inside an answer deadlocks it
+    return " ".join(cleaned_text.split())
 
 if __name__ == '__main__':
 
