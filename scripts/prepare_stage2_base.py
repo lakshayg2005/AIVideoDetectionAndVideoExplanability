@@ -8,8 +8,10 @@
    (replaces scripts/merge_lora_weights_deepfake_random.py, which loads the full fp16 model on CPU).
    Pickled pytorch_model-*.bin shards (10 GB in the official repo) are converted to ~2 GB
    safetensors shards via mmap, so neither conversion nor later loading needs 10 GB of free RAM.
-   The deepfake projector is missing from this checkpoint and is randomly initialised at load time;
-   pass --init_deepfake_projector True to stage 2 to use the original std=0.1 init.
+   The detector (deepfake_encoder.*) and a randomly initialised deepfake projector (std=0.1, as in
+   merge_lora_weights_deepfake_random.py) are written into an extra shard, like the original
+   rand-proj checkpoint; leaving them as missing keys crashes transformers 4.37 on the 0-dim
+   clip_*_alpha parameters.
 
 python scripts/prepare_stage2_base.py --extract-detector \
     --m2f2-path ./checkpoints/llava-v1.5-7b-M2F2-Det --detector-out ./utils/weights/M2F2_Det_densenet121.pth \
@@ -67,7 +69,29 @@ def convert_bin_shards(bin_files, out_path, max_bytes=2 * 1024 ** 3):
         json.dump({'metadata': {}, 'weight_map': weight_map}, f, indent=2)
 
 
-def build_base(llava_path, out_path, detector_path):
+def write_deepfake_shard(m2f2_path, out_path, hidden_size, seed=0):
+    state = {}
+    for shard in sorted(glob.glob(os.path.join(m2f2_path, '*.safetensors'))):
+        with safe_open(shard, framework='pt') as f:
+            state.update({k: f.get_tensor(k) for k in f.keys() if k.startswith(PREFIX)})
+    torch.manual_seed(seed)
+    proj = torch.nn.Sequential(torch.nn.Linear(2, hidden_size), torch.nn.GELU(), torch.nn.Linear(hidden_size, hidden_size))
+    for m in proj.modules():
+        if isinstance(m, torch.nn.Linear):
+            torch.nn.init.normal_(m.weight, std=0.1)
+    state.update({f'deepfake_projector.{k}': v.half().contiguous() for k, v in proj.state_dict().items()})
+    name = 'model-deepfake.safetensors'
+    save_file(state, os.path.join(out_path, name), metadata={'format': 'pt'})
+    idx_path = os.path.join(out_path, 'model.safetensors.index.json')
+    with open(idx_path) as f:
+        idx = json.load(f)
+    idx['weight_map'].update({k: name for k in state})
+    with open(idx_path, 'w') as f:
+        json.dump(idx, f, indent=2)
+    print(f'wrote {name} ({len(state)} tensors)')
+
+
+def build_base(llava_path, out_path, detector_path, m2f2_path=None):
     os.makedirs(out_path, exist_ok=True)
     bin_files = sorted(glob.glob(os.path.join(llava_path, 'pytorch_model-*.bin')))
     for src in glob.glob(os.path.join(llava_path, '*')):
@@ -80,6 +104,8 @@ def build_base(llava_path, out_path, detector_path):
         convert_bin_shards(bin_files, out_path)
     with open(os.path.join(llava_path, 'config.json')) as f:
         cfg = json.load(f)
+    if m2f2_path:
+        write_deepfake_shard(m2f2_path, out_path, cfg['hidden_size'])
     cfg.update({
         'architectures': ['LlavaLlamaForCausalLMDeepfake'],
         'model_type': 'llava_llama',
@@ -103,4 +129,4 @@ if __name__ == '__main__':
     if args.extract_detector:
         extract_detector(args.m2f2_path, args.detector_out)
     if args.llava_path:
-        build_base(args.llava_path, args.out_path, args.detector_out)
+        build_base(args.llava_path, args.out_path, args.detector_out, args.m2f2_path)

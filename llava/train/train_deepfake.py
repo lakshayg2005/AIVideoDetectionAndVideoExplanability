@@ -25,6 +25,7 @@ import re
 import h5py
 import numpy as np
 import torch
+from torch import nn
 
 import transformers
 import tokenizers
@@ -68,6 +69,8 @@ class ModelArguments:
     mm_vision_select_feature: Optional[str] = field(default="patch")
     deepfake_ckpt_path: Optional[str]= field(default=None)
     tune_deepfake_mlp_adapter: bool = field(default=False)
+    init_deepfake_projector: bool = field(default=False)    # random re-init (stage 2 from plain LLaVA)
+    pretrain_deepfake_adapter: Optional[str] = field(default=None)    # stage-2 mm_projector.bin, instead of merging
 
 
 @dataclass
@@ -89,6 +92,7 @@ class TrainingArguments(transformers.TrainingArguments):
     remove_unused_columns: bool = field(default=False)
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
+    attn_impl: str = field(default="flash_attention_2")    # 'sdpa' or 'eager' when flash-attn is not installed
     model_max_length: int = field(
         default=512,
         metadata={
@@ -861,7 +865,8 @@ def train(attn_implementation=None):
             quantization_config=BitsAndBytesConfig(
                 load_in_4bit=training_args.bits == 4,
                 load_in_8bit=training_args.bits == 8,
-                llm_int8_skip_modules=["mm_projector"],
+                # keep the small multimodal heads, detector and lm_head in 16-bit (see PROBLEMS.md #5)
+                llm_int8_skip_modules=["mm_projector", "vision_tower", "deepfake_projector", "deepfake_encoder", "lm_head"],
                 llm_int8_threshold=6.0,
                 llm_int8_has_fp16_weight=False,
                 bnb_4bit_compute_dtype=compute_dtype,
@@ -884,7 +889,7 @@ def train(attn_implementation=None):
             model = LlavaLlamaForCausalLMDeepfake.from_pretrained(
                 model_args.model_name_or_path,
                 cache_dir=training_args.cache_dir,
-                attn_implementation=attn_implementation,
+                attn_implementation=training_args.attn_impl or attn_implementation,
                 torch_dtype=(torch.bfloat16 if training_args.bf16 else None),
                 **bnb_model_from_pretrained_args
             )
@@ -978,6 +983,11 @@ def train(attn_implementation=None):
 
         data_args.image_processor = vision_tower.image_processor
         data_args.is_multimodal = True
+        # the model's forward preprocesses raw images itself; when the tower is delay-loaded
+        # (plain LLaVA base) these were still None at __init__ time
+        base = model.get_base_model() if hasattr(model, 'get_base_model') else model    # unwrap LoRA
+        base.processors = {"clip_processor": vision_tower.image_processor,
+                           "deepfake_processor": vision_tower.image_processor}
 
         model.config.image_aspect_ratio = data_args.image_aspect_ratio
         model.config.tokenizer_padding_side = tokenizer.padding_side
@@ -1013,6 +1023,16 @@ def train(attn_implementation=None):
         p.requires_grad = False
     
     # deepfake projectors
+    if model_args.init_deepfake_projector:
+        for m in model.deepfake_projector.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, std=0.1)
+        print('re-initialized deepfake projector')
+    if model_args.pretrain_deepfake_adapter is not None:
+        w = torch.load(model_args.pretrain_deepfake_adapter, map_location='cpu')
+        w = {k.split('deepfake_projector.')[1]: v for k, v in w.items() if 'deepfake_projector.' in k}
+        model.deepfake_projector.load_state_dict(w)
+        print(f'loaded deepfake projector from {model_args.pretrain_deepfake_adapter}')
     if model_args.tune_deepfake_mlp_adapter:
         for p in model.deepfake_projector.parameters():
             p.requires_grad = True
@@ -1047,6 +1067,10 @@ def train(attn_implementation=None):
     for p in model.model.get_vision_tower().parameters():
         p.requires_grad = False
         
+    if training_args.bits in [4, 8] and not training_args.lora_enable:
+        # stage 2 on a quantized base: only the 16-bit projector trains (4-bit weights stay frozen),
+        # so transformers' "purely quantized model" guard does not apply
+        model._hf_peft_config_loaded = True
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
