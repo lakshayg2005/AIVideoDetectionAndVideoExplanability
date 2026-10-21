@@ -1,52 +1,76 @@
 # Plan: correct heatmaps and explanations across forgery types (images first)
 
 Base paper: M2F2-Det (CVPR 2025). Goal: for any image, a real/fake verdict, a **correct** heatmap
-(where the manipulation is) and an explanation that names the evidence and the kind of edit.
-Video and fully AI-generated content come after this works on images.
+(where the manipulation is), the **kind** of manipulation, and an explanation that names both.
+Video and broader AI-generated content come after this works on images.
 
 ## Status (see RESULTS.md)
 - Reproduced in 4-bit on one RTX 3060 (judgment acc 88.1%).
 - Detector maps are faithful (mean-fill occlusion, p = 1.2e-7) but match human part labels only at
   chance: they show what the model uses, not yet where the forgery is.
 - DDVQA explanation scores depend on the label and parts given in the question; stage 3 is being
-  retrained on a self-explaining mix (`scripts/build_self_explain_data.py`).
+  retrained on a self-explaining mix (`scripts/build_self_explain_data.py`). That model is the
+  baseline for everything below.
+
+## Forgery types and data (phase 1, final)
+| # | Type | Data | Masks | Explanations |
+|---|---|---|---|---|
+| 1 | Face swap / reenactment (FF++) | DDVQA c40 + c23 (in repo) | weak: annotated part names | human |
+| 2 | GAN face swap in the wild, multi-face | OpenForensics (ICCV 2021, CC-BY-4.0) | per face | generated from mask + face parts |
+| 3 | Diffusion face swap | DiffusionFace DiffSwap (CC-BY-4.0) | face region | generated |
+| 4 | Diffusion local edit / inpainting, faces | DiffusionFace Inpaint + own SD-inpainting of face parts | yes (own: exact) | generated |
+| 5 | Diffusion img2img (re-rendered face) | DiffusionFace SDv1.5 img2img | whole image | generated |
+| 6 | Fully generated faces | DiffusionFace ADM, SD1.5 text2img | whole image | generated |
+| 7 | Photoshop splice / copy-move | CASIA v2 + revised GT masks | yes | MMTD-Set (GPT-4o) |
+| 8 | Diffusion inpainting, general scenes | SD_inpaint + COCO real (FakeShield) | yes | MMTD-Set (GPT-4o) |
+| 9 | Heavy filters / post-processing | own generator (`scripts/make_filtered_data.py`) on real and fake | edit mask | generated |
+
+Held out for "unseen technique" tests: DiffusionFace LDM and SD2.1 text2img, DiffusionFace Wild,
+OpenForensics Test-Dev, DDVQA c23 (unseen compression). Not covered: GAN attribute editing
+(FaceApp / StarGAN; DFFD needs an instructor request) - partly approximated by type 4.
+Optional later: FakeClue (FakeVLM) for human-style texts on AI-generated images.
 
 ## Architecture changes (on top of M2F2-Det)
-1. **Mask head.** Light decoder on CLIP patch features + DenseNet features -> full-resolution forgery
-   mask, Dice + BCE loss against ground-truth masks; the 24x24 CLIP forgery-score map is supervised
-   with the downsampled mask. The heatmap becomes a trained prediction instead of a post-hoc readout.
-2. **Edit-type head.** Multi-class manipulation type (real, face swap / reenactment, attribute edit,
-   splice / copy-move, diffusion inpainting, fully generated) + multi-label filters (beauty smoothing,
-   blur, JPEG, colour grading, sharpening, resize). The probabilities replace the 2-dim real/fake input
-   of `deepfake_projector`, so the LLM knows which edit it is explaining.
-3. **Region-aware explanations.** Stage-3 LoRA on texts that describe the tampered area and the edit type
-   (MMTD-Set descriptions, DDVQA, generated filter descriptions), in the self-explaining format.
-4. **High-resolution inputs.** Tile / crop large photos so small edits are not lost at 336 px.
+M2F2-Det today: CLIP ViT-L/14-336 (LLaVA's tower, layer -2) -> (a) LLM image tokens, (b) detector:
+576 patch-vs-forgery-prompt scores + CLIP CLS + DenseNet-121 -> Linear -> 2 probabilities ->
+`deepfake_projector` -> one `<deepfake>` token for the LLM.
 
-## Data
-| Data | Content | Masks | Explanations | Access |
-|---|---|---|---|---|
-| MMTD-Set-34k (FakeShield, ICLR 2025) | descriptions for the three sources below | via sources | yes (tampered area + judgment basis) | Hugging Face, Apache-2.0, downloaded |
-| SD_inpaint | Stable-Diffusion inpainting + COCO real | yes | via MMTD | Hugging Face, Apache-2.0, 11.3 GB |
-| CASIA v2 | Photoshop splice / copy-move | yes | via MMTD | Kaggle (account needed) |
-| DFFD | FaceApp edits + FFHQ real | yes | via MMTD | MSU (request) |
-| DDVQA c40/c23 | FF++ face swaps / reenactment | part names | human | in repo |
-| Generated filters | beauty smoothing (skin mask), blur, JPEG, colour, sharpen on real and fake | yes | generated | local |
-| FakeClue (FakeVLM, NeurIPS 2025) | faces + AI-generated | no | yes | Hugging Face, Apache-2.0, 29.8 GB |
-| DiffusionFace | diffusion face synthesis / inpaint / swap | to check | no | GitHub |
+1. **Forgery mask head (heatmap).** FPN-style decoder fusing CLIP patch tokens (several layers,
+   24x24), the 24x24 forgery-score map and DenseNet features (84x84 / 42x42 / 21x21) -> 2 channels at
+   84x84, upsampled to the image: *forgery mask* (content manipulated) and *processing mask*
+   (filters). Loss: BCE + Dice; the paper's 24x24 score map gets an auxiliary loss against the
+   downsampled forgery mask. Real images: empty masks; fully generated: whole image; DDVQA: weak
+   part-level supervision from the annotated parts (MediaPipe part masks).
+2. **Edit-type head.** On [CLS, pooled DenseNet, mask-pooled patch features]: 6-way type
+   (real, face swap/reenactment, splice/copy-move, diffusion local edit, img2img, fully generated)
+   + 6 multi-label filters (beauty, blur, JPEG, colour, sharpen, resize). The original real/fake
+   output is kept.
+3. **Evidence and region tokens for the LLM.** `deepfake_projector` input grows from 2 to 14
+   (real/fake + type + filters). In addition, CLIP patch features pooled inside the predicted mask
+   (and inside the top face parts) go through the existing `mm_projector` as extra region tokens, so
+   the LLM is told *what* and *where* before it explains.
+4. **Inputs.** Face crops for face data (OpenForensics boxes, MediaPipe elsewhere); 336 px resize for
+   scene images, sliding tiles for large photos in the mask head.
 
-Fully generated faces have no local region; for them the heatmap is evaluated only for faithfulness.
+The CLIP vision tower stays frozen (it is shared with the LLM; changing it breaks the alignment and
+the 12 GB budget).
 
-## Evaluation per category
-Classic deepfake, attribute edit, splice, diffusion inpainting, fully generated, filtered real,
-filtered fake: detection AUC; heatmap IoU / F1 and pointing game vs masks; edit-type accuracy;
-explanation BLEU-4 / METEOR / ROUGE-L / CIDEr / SPICE vs references; faithfulness (mean-fill occlusion);
-text-heatmap consistency.
+## Training (all on the RTX 3060)
+- **A. Detector + heads** (replaces the paper's stage 1): DenseNet, forgery prompts, projections,
+  mask decoder, type head; CLIP frozen. Losses: real/fake CE + type CE + filter BCE + mask BCE/Dice +
+  auxiliary map loss. Hours.
+- **B. Projector alignment** (stage 2): 14-dim evidence + region tokens, 4-bit frozen LLM.
+- **C. QLoRA explanations** (stage 3): DDVQA self-explaining + MMTD + generated grounded texts for
+  OpenForensics, DiffusionFace, own edits and filters.
+
+## Evaluation per type (and on held-out techniques)
+Detection AUC; mask IoU / F1 and pointing game; edit-type and filter accuracy; explanation BLEU-4 /
+METEOR / ROUGE-L / CIDEr / SPICE vs references; faithfulness (mean-fill occlusion); text-heatmap
+consistency (parts / region named in the text vs predicted mask).
 
 ## Order
 1. Finish self-explaining stage 3 and evaluate it (running).
-2. Data: download + organise mask/explanation sources; generate filtered data.
-3. Evaluation suite on all categories with the current model (baseline).
-4. Train detector with mask head + edit-type head (hours on the 3060).
-5. Stage-2/3 with the K-dim edit-type input and region-aware texts (~1-2 days).
-6. Re-evaluate; optional RL for text-heatmap consistency with a smaller LLM.
+2. Data index: images + masks + explanations for all sources; generated texts; filtered data.
+3. Baseline evaluation of the current model on every type.
+4. Training A, then B and C; re-evaluate; ablations (no mask loss, no region tokens, no type head).
+5. Optional: RL for text-heatmap consistency with a smaller LLM; then video.
