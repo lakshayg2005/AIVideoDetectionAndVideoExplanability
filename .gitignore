@@ -174,5 +174,5 @@ checkpoints/llava-v1.5-7b-M2F2-Det/
 # local checkpoints / training runs and large visual outputs
 checkpoints/llava-*/
 outputs/explain/overlays/
-outputs/explain/grounded_overlays/
+**/grounded_overlays/
 runs/

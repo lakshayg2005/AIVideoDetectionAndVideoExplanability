@@ -1,0 +1,7 @@
+{
+  "n": 137,
+  "verdict_acc": 1.0,
+  "llm_detector_agreement": 0.708029197080292,
+  "text_map_consistency": 0.9124087591240879,
+  "n_with_mentions": 137
+}
