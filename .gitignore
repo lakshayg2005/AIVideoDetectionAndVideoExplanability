@@ -176,3 +176,4 @@ checkpoints/llava-*/
 outputs/explain/overlays/
 **/grounded_overlays/
 runs/
+utils/DDVQA_split/c40/train_self_explain_mix.json
