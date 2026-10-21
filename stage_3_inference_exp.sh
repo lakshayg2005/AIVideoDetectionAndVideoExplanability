@@ -1,5 +1,5 @@
 #!/bin/bash
-source /home/user2/miniforge3/bin/activate M2F2_det
+source "${CONDA_BASE:-$HOME/miniconda3}/bin/activate" M2F2_det
 current_path=$(pwd)
 export PYTHONPATH="$current_path:$PYTHONPATH"
 

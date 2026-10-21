@@ -3,7 +3,7 @@
 # Usage: bash run_ui.sh            # real model, http://127.0.0.1:7860
 #        bash run_ui.sh --share    # also prints a public gradio.live link
 #        bash run_ui.sh --mock     # UI only, no GPU/weights
-source /home/user2/miniforge3/bin/activate M2F2_det
+source "${CONDA_BASE:-$HOME/miniconda3}/bin/activate" M2F2_det
 current_path=$(pwd)
 export PYTHONPATH="$current_path:$PYTHONPATH"
 

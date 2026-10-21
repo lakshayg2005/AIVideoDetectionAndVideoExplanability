@@ -47,7 +47,8 @@ def main(args):
     eccv_dataset_root = './utils/DDVQA_images/c40/test'
     out_dir = 'outputs/DDVQA'
     os.makedirs(out_dir, exist_ok=True)
-    out_file = os.path.join(out_dir, 'DDVQA_exp_c40.jsonl')
+    out_file = args.out_file or os.path.join(out_dir, 'DDVQA_exp_c40.jsonl')
+    os.makedirs(os.path.dirname(out_file) or '.', exist_ok=True)
 
     processed_keys = set()
     if os.path.exists(out_file):
@@ -137,5 +138,6 @@ if __name__ == "__main__":
     parser.add_argument("--load-8bit", action="store_true")
     parser.add_argument("--load-4bit", action="store_true")
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--out-file", type=str, default=None)
     args = parser.parse_args()
     main(args)

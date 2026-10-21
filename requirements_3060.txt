@@ -1,0 +1,39 @@
+# Minimal environment for 4-bit inference / QLoRA on a single 12 GB GPU (RTX 3060).
+# conda create -n M2F2_det python=3.10
+# pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
+# pip install -r requirements_3060.txt
+numpy==1.26.4
+transformers==4.37.0
+tokenizers==0.15.1
+accelerate==0.21.0
+peft==0.10.0
+bitsandbytes==0.42.0
+timm==0.4.12
+einops==0.6.1
+einops-exts==0.0.4
+sentencepiece==0.1.99
+protobuf==4.25.3
+huggingface-hub==0.22.2
+safetensors==0.4.3
+opencv-python==4.8.1.78
+h5py
+tensorboardX
+scikit-learn
+pandas
+matplotlib
+shortuuid
+markdown2
+gradio==4.16.0
+gradio-client==0.8.1
+fastapi==0.110.1
+pydantic<2.8
+uvicorn
+httpx==0.24.0
+deepspeed==0.12.6
+gdown
+tqdm
+ftfy
+regex
+jsonlines
+pycocoevalcap
+mediapipe==0.10.14

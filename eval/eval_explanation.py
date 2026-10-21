@@ -60,5 +60,13 @@ if __name__ == '__main__':
             key = list(gt_data.keys())[0]
             gt_dict[key] = gt_data[key]['answer']
 
+    # score only the questions that were predicted (lets subsets, e.g. overall-only, be evaluated)
+    missing = set(ref_dict) - set(gt_dict)
+    if missing:
+        print(f'Ignoring {len(missing)} predicted keys without ground truth')
+    ref_dict = {k: v for k, v in ref_dict.items() if k in gt_dict}
+    gt_dict = {k: gt_dict[k] for k in ref_dict}
+    print(f'Scoring {len(ref_dict)} answers')
+
     scorer = Scorer(ref_dict, gt_dict)
     scorer.compute_scores()

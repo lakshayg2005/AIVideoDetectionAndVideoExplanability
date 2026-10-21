@@ -15,6 +15,7 @@
 
 from typing import List, Optional, Tuple, Union
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -633,11 +634,17 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
             raise ValueError("Only cls_patch is supported for mm_vision_select_feature.")
         
     def load_deepfake_encoder(self, model_path, verbose=True):
-        ckpt = torch.load(model_path)
+        # The released HF checkpoint already contains deepfake_encoder.*; the .pth only overrides it.
+        if not model_path or not os.path.exists(model_path):
+            print(f'[load_deepfake_encoder] {model_path} not found, keeping detector weights from the checkpoint.')
+            return
+        ckpt = torch.load(model_path, map_location='cpu')
         state_dict = dict()
         for k, v in self.deepfake_encoder.state_dict().items():
             if k in ckpt:
                 state_dict[k] = ckpt[k].to(v.dtype)
+        if not state_dict:
+            raise ValueError(f'No deepfake_encoder keys matched in {model_path} (top-level keys: {list(ckpt)[:5]})')
         missing_keys, unexpected_keys = self.deepfake_encoder.load_state_dict(state_dict, strict=False)
         if verbose:
             print('Load deepfake encoder')
