@@ -179,7 +179,7 @@ def get_mm_adapter_state_maybe_zero_3(named_params, keys_to_match):
 def find_all_linear_names(model):
     cls = torch.nn.Linear
     lora_module_names = set()
-    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler', 'deepfake_projector', 'deepfake_encoder']
+    multimodal_keywords = ['mm_projector', 'vision_tower', 'vision_resampler', 'deepfake_projector', 'deepfake_encoder', 'forensic']
     for name, module in model.named_modules():
         if any(mm_keyword in name for mm_keyword in multimodal_keywords):
             continue
@@ -866,7 +866,7 @@ def train(attn_implementation=None):
                 load_in_4bit=training_args.bits == 4,
                 load_in_8bit=training_args.bits == 8,
                 # keep the small multimodal heads, detector and lm_head in 16-bit (see PROBLEMS.md #5)
-                llm_int8_skip_modules=["mm_projector", "vision_tower", "deepfake_projector", "deepfake_encoder", "lm_head"],
+                llm_int8_skip_modules=["mm_projector", "vision_tower", "deepfake_projector", "deepfake_encoder", "forensic", "lm_head"],
                 llm_int8_threshold=6.0,
                 llm_int8_has_fp16_weight=False,
                 bnb_4bit_compute_dtype=compute_dtype,
@@ -1066,7 +1066,10 @@ def train(attn_implementation=None):
         p.requires_grad = False
     for p in model.model.get_vision_tower().parameters():
         p.requires_grad = False
-        
+    if getattr(model, 'forensic', None) is not None:    # Stage-A heads stay frozen
+        for p in model.forensic.parameters():
+            p.requires_grad = False
+
     if training_args.bits in [4, 8] and not training_args.lora_enable:
         # stage 2 on a quantized base: only the 16-bit projector trains (4-bit weights stay frozen),
         # so transformers' "purely quantized model" guard does not apply

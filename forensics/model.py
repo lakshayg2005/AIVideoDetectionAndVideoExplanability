@@ -27,6 +27,7 @@ from M2F2Det.model import M2F2Det  # noqa: E402  (imported without the LLaVA pac
 CLIP_NAME = 'openai/clip-vit-large-patch14-336'
 CLIP_LAYERS = (8, 16, -2)
 N_TYPES, N_FILTERS = 6, 6
+EVIDENCE_DIM = 2 + N_TYPES + N_FILTERS + 2    # real/fake, types, filters, forged / filtered area
 
 
 def block(cin, cout):
@@ -50,6 +51,75 @@ class MaskDecoder(nn.Module):
         x = self.fuse42(torch.cat([up(x, f2.shape[-2:]), self.f2(f2), up(self.f3(f3), f2.shape[-2:])], 1))
         x = self.fuse84(torch.cat([up(x, f1.shape[-2:]), self.f1(f1)], 1))
         return self.head(x)    # [B, 2, 84, 84]
+
+
+def densenet(det, x):
+    """DenseNet-121 of the M2F2 detector with the 84 / 42 / 21 px block outputs (336 px input)."""
+    feats = {}
+    for name, m in det.deepfake_encoder.named_children():
+        x = m(x)
+        if name in ('denseblock1', 'denseblock2', 'denseblock3'):
+            feats[name] = x
+    return feats['denseblock1'], feats['denseblock2'], feats['denseblock3'], x
+
+
+def run_heads(det, decoder, aux, type_head, pixel, hs, text=None):
+    """Detector + new heads. hs: CLIP hidden states of CLIP_LAYERS (float), pixel: CLIP-normalised 336 px.
+    text: optional cached forgery-prompt features (det.text_proj(det.clip_text_encoder()))."""
+    B = pixel.shape[0]
+    v = det.vision_proj(hs[-1])
+    cls, patches = v[:, 0], v[:, 1:]
+    text = det.text_proj(det.clip_text_encoder().float()) if text is None else text
+    scores = F.cosine_similarity(patches, text.unsqueeze(1).expand_as(patches), dim=-1)    # [B, 576]
+    side = int(scores.shape[1] ** 0.5)
+    f1, f2, f3, f4 = densenet(det, pixel)
+    dfeat = det.deepfake_proj(f4.mean(dim=(2, 3)))
+    logits = det.output(torch.cat([det.clip_text_alpha * scores, det.clip_vision_alpha * cls, dfeat], -1))
+
+    score_map = scores.view(B, 1, side, side)
+    clip_maps = [h[:, 1:].transpose(1, 2).reshape(B, -1, side, side) for h in hs]
+    mask_logits = decoder(clip_maps, score_map, f1, f2, f3)
+    aux_logits = aux[0] * score_map + aux[1]
+
+    wgt = torch.sigmoid(F.interpolate(mask_logits[:, :1], size=(side, side), mode='bilinear', align_corners=False))
+    wgt = wgt.flatten(1).unsqueeze(-1) + 1e-4
+    pooled = (patches * wgt).sum(1) / wgt.sum(1)
+    th = type_head(torch.cat([cls, dfeat, pooled], -1))
+    w = det.output.weight[1] - det.output.weight[0]    # the paper's map: exact patch contribution to the margin
+    return {'logits': logits, 'mask_logits': mask_logits, 'aux_logits': aux_logits,
+            'type_logits': th[:, :N_TYPES], 'filter_logits': th[:, N_TYPES:],
+            'paper_map': (w[:scores.shape[1]] * det.clip_text_alpha * scores).view(B, 1, side, side)}
+
+
+def evidence(out, hs_last):
+    """Inputs for the LLM: [B, EVIDENCE_DIM] evidence vector and [B, 3, 1024] CLIP patch features pooled in the
+    predicted forged area, outside it, and in the filtered area (hs_last: CLIP layer -2 incl. CLS)."""
+    side = out['paper_map'].shape[-1]
+    m = torch.sigmoid(F.interpolate(out['mask_logits'].float(), size=(side, side), mode='bilinear', align_corners=False))
+    forg, proc = m[:, 0].flatten(1), m[:, 1].flatten(1)
+    ev = torch.cat([torch.softmax(out['logits'].float(), -1), torch.softmax(out['type_logits'].float(), -1),
+                    torch.sigmoid(out['filter_logits'].float()), forg.mean(1, keepdim=True), proc.mean(1, keepdim=True)], -1)
+    patches = hs_last[:, 1:].float()
+
+    def pool(w):
+        w = w.unsqueeze(-1) + 1e-4
+        return (patches * w).sum(1) / w.sum(1)
+    return ev, torch.stack([pool(forg), pool(1 - forg), pool(proc)], 1)
+
+
+class ForensicHeads(nn.Module):
+    """The new Stage-A heads as one module, for use inside the LLaVA model (which owns the vision tower and
+    the detector as `deepfake_encoder`). Parameter names match M2F2Seg so its checkpoints map directly."""
+
+    def __init__(self):
+        super().__init__()
+        self.decoder = MaskDecoder()
+        self.aux = nn.Parameter(torch.tensor([10.0, 0.0]))
+        self.type_head = nn.Sequential(nn.Linear(3 * 1024, 512), nn.GELU(), nn.Dropout(0.1),
+                                       nn.Linear(512, N_TYPES + N_FILTERS))
+
+    def forward(self, det, pixel, hs, text=None):
+        return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text)
 
 
 class M2F2Seg(nn.Module):
@@ -93,45 +163,11 @@ class M2F2Seg(nn.Module):
         assert not miss_d, miss_d[:5]
         return len(vis), len(det)
 
-    def densenet(self, x, det=None):
-        feats = {}
-        for name, m in (det or self.det).deepfake_encoder.named_children():
-            x = m(x)
-            if name in ('denseblock1', 'denseblock2', 'denseblock3'):
-                feats[name] = x
-        return feats['denseblock1'], feats['denseblock2'], feats['denseblock3'], x
-
-    def patch_contribution(self, scores):
-        """The paper's map: exact contribution of each patch score to the fake-real margin."""
-        w = self.det.output.weight[1] - self.det.output.weight[0]
-        return w[:scores.shape[1]] * self.det.clip_text_alpha * scores
-
     def forward(self, pixel):
-        B = pixel.shape[0]
         with torch.no_grad():
             hs = self.clip(pixel.to(self.clip.dtype), output_hidden_states=True).hidden_states
         hs = [hs[i].float() for i in CLIP_LAYERS]
-        v = self.det.vision_proj(hs[-1])
-        cls, patches = v[:, 0], v[:, 1:]
-        text = self.det.text_proj(self.det.clip_text_encoder().float())
-        scores = F.cosine_similarity(patches, text.unsqueeze(1).expand_as(patches), dim=-1)    # [B, 576]
-        side = int(scores.shape[1] ** 0.5)
-        f1, f2, f3, f4 = self.densenet(pixel)
-        dfeat = self.det.deepfake_proj(f4.mean(dim=(2, 3)))
-        logits = self.det.output(torch.cat([self.det.clip_text_alpha * scores, self.det.clip_vision_alpha * cls, dfeat], -1))
-
-        score_map = scores.view(B, 1, side, side)
-        clip_maps = [h[:, 1:].transpose(1, 2).reshape(B, -1, side, side) for h in hs]
-        mask_logits = self.decoder(clip_maps, score_map, f1, f2, f3)
-        aux_logits = self.aux[0] * score_map + self.aux[1]
-
-        wgt = torch.sigmoid(F.interpolate(mask_logits[:, :1], size=(side, side), mode='bilinear', align_corners=False))
-        wgt = wgt.flatten(1).unsqueeze(-1) + 1e-4
-        pooled = (patches * wgt).sum(1) / wgt.sum(1)
-        th = self.type_head(torch.cat([cls, dfeat, pooled], -1))
-        out = {'logits': logits, 'mask_logits': mask_logits, 'aux_logits': aux_logits,
-               'type_logits': th[:, :N_TYPES], 'filter_logits': th[:, N_TYPES:],
-               'paper_map': self.patch_contribution(scores).view(B, 1, side, side)}
+        out = run_heads(self.det, self.decoder, self.aux, self.type_head, pixel, hs)
         if self.teacher is not None:
             with torch.no_grad():
                 t = self.teacher
@@ -139,7 +175,7 @@ class M2F2Seg(nn.Module):
                     self._teacher_text = t.text_proj(t.clip_text_encoder().float())
                 tv = t.vision_proj(hs[-1])
                 ts = F.cosine_similarity(tv[:, 1:], self._teacher_text.unsqueeze(1).expand_as(tv[:, 1:]), dim=-1)
-                tdf = t.deepfake_proj(self.densenet(pixel, t)[3].mean(dim=(2, 3)))
+                tdf = t.deepfake_proj(densenet(t, pixel)[3].mean(dim=(2, 3)))
                 out['teacher_logits'] = t.output(torch.cat([t.clip_text_alpha * ts, t.clip_vision_alpha * tv[:, 0], tdf], -1))
         return out
 

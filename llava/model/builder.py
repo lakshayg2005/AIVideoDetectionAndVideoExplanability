@@ -38,7 +38,7 @@ def load_pretrained_model(model_path, model_base, model_name, load_8bit=False, l
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type='nf4',
-            llm_int8_skip_modules=['mm_projector', 'vision_tower', 'deepfake_projector', 'deepfake_encoder', 'lm_head']
+            llm_int8_skip_modules=['mm_projector', 'vision_tower', 'deepfake_projector', 'deepfake_encoder', 'forensic', 'lm_head']
         )
     else:
         kwargs['torch_dtype'] = torch.float16
@@ -183,7 +183,7 @@ def load_deepfake_model(model_path, model_base, model_name, load_8bit=False, loa
             bnb_4bit_compute_dtype=torch.float16,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type='nf4',
-            llm_int8_skip_modules=['mm_projector', 'vision_tower', 'deepfake_projector', 'deepfake_encoder', 'lm_head']
+            llm_int8_skip_modules=['mm_projector', 'vision_tower', 'deepfake_projector', 'deepfake_encoder', 'forensic', 'lm_head']
         )
     else:
         kwargs['torch_dtype'] = torch.float16
@@ -200,7 +200,7 @@ def load_deepfake_model(model_path, model_base, model_name, load_8bit=False, loa
             lora_cfg_pretrained = LlavaConfig.from_pretrained(model_path)
             tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
             print('Loading LLaVA from base model...')
-            model = LlavaLlamaForCausalLMDeepfake.from_pretrained(model_base, low_cpu_mem_usage=False, config=lora_cfg_pretrained, **kwargs)
+            model = LlavaLlamaForCausalLMDeepfake.from_pretrained(model_base, low_cpu_mem_usage=True, config=lora_cfg_pretrained, **kwargs)
             token_num, tokem_dim = model.lm_head.out_features, model.lm_head.in_features
             if model.lm_head.weight.shape[0] != token_num:
                 model.lm_head.weight = torch.nn.Parameter(torch.empty(token_num, tokem_dim, device=model.device, dtype=model.dtype))
@@ -227,15 +227,18 @@ def load_deepfake_model(model_path, model_base, model_name, load_8bit=False, loa
             from peft import PeftModel
             print('Loading LoRA weights...')
             model = PeftModel.from_pretrained(model, model_path)
-            print('Merging LoRA weights...')
-            model = model.merge_and_unload()
+            if load_4bit or load_8bit:    # merging into quantized weights is lossy: keep the adapter (QLoRA inference)
+                print('Keeping LoRA weights unmerged on the quantized model...')
+            else:
+                print('Merging LoRA weights...')
+                model = model.merge_and_unload()
             print('Model is loaded...')
         elif model_base is not None:
             # this may be mm projector only
             print('Loading LLaVA from base model...')
             tokenizer = AutoTokenizer.from_pretrained(model_base, use_fast=False)
             cfg_pretrained = AutoConfig.from_pretrained(model_path)
-            model = LlavaLlamaForCausalLMDeepfake.from_pretrained(model_base, low_cpu_mem_usage=False, config=cfg_pretrained, **kwargs)
+            model = LlavaLlamaForCausalLMDeepfake.from_pretrained(model_base, low_cpu_mem_usage=True, config=cfg_pretrained, **kwargs)
 
             mm_projector_weights = torch.load(os.path.join(model_path, 'mm_projector.bin'), map_location='cpu')
             mm_projector_weights = {k: v.to(torch.float16) for k, v in mm_projector_weights.items()}

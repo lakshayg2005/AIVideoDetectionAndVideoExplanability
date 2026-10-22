@@ -622,7 +622,16 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
             p.requires_grad = False
         for p in self.model.vision_tower.parameters():
             p.requires_grad = False
-        self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=2)
+        # forensic_head: Stage-A heads (forensics/model.py) turn the detector into a 16-dim evidence token
+        # (real/fake, forgery type, filters, masked areas) plus 3 region tokens; otherwise the paper's 2-dim token
+        self.forensic = None
+        if getattr(config, 'forensic_head', False):
+            from forensics.model import ForensicHeads, EVIDENCE_DIM
+            self.forensic = ForensicHeads().requires_grad_(False)
+            self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=EVIDENCE_DIM)
+        else:
+            self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=2)
+        self._forensic_hs, self._forensic_text, self.last_forensics = None, None, None
         # Initialize weights and apply final processing
         vt = self.get_vision_tower()
         ip = getattr(vt, 'image_processor', None) if vt is not None else None
@@ -632,6 +641,18 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
         }
         if self.config.mm_vision_select_feature != "cls_patch":
             raise ValueError("Only cls_patch is supported for mm_vision_select_feature.")
+
+    def encode_images_multimodal_features(self, images):
+        if self.forensic is None:
+            return super().encode_images_multimodal_features(images)
+        # one vision-tower pass gives the LLM features (layer -2) and the extra layers the mask head uses
+        from forensics.model import CLIP_LAYERS
+        vt = self.get_model().get_vision_tower()
+        with torch.no_grad():
+            out = vt.vision_tower(images.to(device=vt.device, dtype=vt.dtype), output_hidden_states=True)
+        self._forensic_hs = [out.hidden_states[i] for i in CLIP_LAYERS]
+        visual = vt.feature_select(out).to(images.dtype)
+        return visual, self.get_model().mm_projector(visual)
         
     def load_deepfake_encoder(self, model_path, verbose=True):
         # The released HF checkpoint already contains deepfake_encoder.*; the .pth only overrides it.
@@ -656,7 +677,26 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
     def get_model(self):
         return self.model
 
+    def encode_forensic_tokens(self, pixel):
+        """[B, 4, hidden]: evidence token + region tokens (forged area, rest, filtered area)."""
+        from forensics.model import evidence
+        det = self.deepfake_encoder
+        dtype = next(self.forensic.parameters()).dtype
+        hs = [h.to(dtype) for h in self._forensic_hs]
+        with torch.no_grad():    # detector and heads stay frozen in stages B and C
+            if self._forensic_text is None:
+                self._forensic_text = det.text_proj(det.clip_text_encoder().to(dtype))
+            out = self.forensic(det, pixel.to(device=hs[0].device, dtype=dtype), hs, self._forensic_text)
+            ev, regions = evidence(out, hs[-1])
+        self.last_forensics = {k: v.detach().float() for k, v in out.items()}
+        tok_e = self.deepfake_projector(ev.unsqueeze(1).to(self.deepfake_projector[0].weight.dtype))
+        mm = self.get_model().mm_projector
+        tok_r = mm(regions.to(mm[0].weight.dtype))
+        return torch.cat([tok_e, tok_r.to(tok_e.dtype)], dim=1)
+
     def encode_deepfake_tokens(self, deepfake_inputs):
+        if self.forensic is not None:
+            return self.encode_forensic_tokens(deepfake_inputs['images'])
         out = self.deepfake_encoder(**deepfake_inputs).unsqueeze(1)    # [B, 1, 2]
         out = F.softmax(out, dim=-1)
         
