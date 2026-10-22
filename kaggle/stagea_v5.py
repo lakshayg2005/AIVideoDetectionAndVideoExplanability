@@ -138,7 +138,7 @@ bad = [r['image'] for r in dfr if '/masks/' in r['image'] or '/jsons/' in r['ima
 log(f'diffusionface check: {len(dfr)} records, Inpaint {n_inp}, mask/metadata samples {len(bad)}')
 assert not bad and n_inp == 30000, 'stale DiffusionFace index'
 
-budget = 11.5 * 60 - (time.time() - T0) / 60 - 50    # leave time for the final eval and save
+budget = 9.0 * 60 - (time.time() - T0) / 60 - 50    # whole job <= 9 h (10 h of weekly quota left); final eval + save
 idx = ' '.join(f'{IDX}/{n}.jsonl' for n in ('casia', 'sd_inpaint', 'ddvqa_c40', 'openforensics', 'diffusionface'))
 common = (f'{py} -W ignore -m forensics.train --index {idx} '
           f'--roots casia={casia} sd_inpaint={sd} ddvqa={CODE}/utils openforensics={of} diffusionface={df} '
