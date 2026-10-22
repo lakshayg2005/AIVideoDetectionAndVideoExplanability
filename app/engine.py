@@ -148,7 +148,7 @@ def aggregate(p_fakes, trim=0.1):
 # --------------------------------------------------------------------------- engines
 
 class M2F2Engine:
-    def __init__(self, model_path, load_4bit=True, load_8bit=False):
+    def __init__(self, model_path, load_4bit=True, load_8bit=False, model_base=None):
         import torch
         from llava.constants import IMAGE_TOKEN_INDEX, DEEPFAKE_TOKEN_INDEX
         from llava.mm_utils import get_model_name_from_path, tokenizer_hybrid_token
@@ -158,12 +158,14 @@ class M2F2Engine:
         self._tok_fn = lambda p: tokenizer_hybrid_token(p, self.tokenizer, IMAGE_TOKEN_INDEX, DEEPFAKE_TOKEN_INDEX,
                                                         return_tensors="pt").unsqueeze(0).to(self.model.device)
         name = get_model_name_from_path(model_path)
-        self.tokenizer, self.model, _, _ = load_deepfake_model(model_path, None, name, load_8bit, load_4bit, device="cuda")
+        self.tokenizer, self.model, _, _ = load_deepfake_model(model_path, model_base, name, load_8bit, load_4bit, device="cuda")
         self.model.eval()
         if not (load_4bit or load_8bit):
             self.model = self.model.to("cuda")
         self.model.load_deepfake_encoder(self.model.config.deepfake_model_path, verbose=False)
         self.model.deepfake_encoder.to("cuda", dtype=torch.float16)
+        if getattr(self.model, "forensic", None) is not None:    # Stage-A heads (forensic_head models)
+            self.model.forensic.to("cuda", dtype=torch.float16)
 
         # First token where "The image is real" and "The image is fake" differ -> the decision token.
         r = self.tokenizer.encode("The image is real", add_special_tokens=False)
