@@ -183,3 +183,26 @@ plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
   2-dim projector on the real/fake inputs and zero on the new ones (`scripts/prepare_forensic_base.py`): at step 0
   the model keeps the released behaviour (DDVQA 0.889); training then has to teach it to use the type, filter and
   region evidence.
+
+## 6. Stage-A v3 and v4
+
+- **v3** (`kaggle/stagea_v3.py`) was meant to use the corrected DiffusionFace index but ran a stale copy of the code
+  from the Kaggle dataset (its log shows the old 271,439 DiffusionFace records). It is therefore a second v2 run with
+  another seed: per-source differences to v2 are within about +-0.03 (log: `outputs/stagea_v3/log.jsonl`), except
+  DDVQA c40 AUC 0.865 (v2 0.845, released detector 0.863).
+- **v4** (`kaggle/stagea_v4.py`, code embedded in the job, index checked: 241,439 records, 30,000 Inpaint images with
+  masks, no mask files as samples), 14,000 steps. Log: `outputs/stagea_v4/log.jsonl`.
+
+| Test set | v3 (20k steps, old index) | v4 (14k steps, fixed index) |
+|---|---|---|
+| DiffusionFace inpainting edits: IoU / F1 / pointing | not supervised | 0.227 / 0.337 / 0.565 |
+| OpenForensics Test-Dev: IoU / AUC | 0.914 / 0.999 | 0.910 / 0.996 |
+| OpenForensics Test-Challenge: IoU / AUC / FPR | 0.753 / 0.930 / 0.176 | 0.714 / 0.920 / 0.256 |
+| SD_inpaint: IoU / AUC / FPR | 0.406 / 0.947 / 0.160 | 0.359 / 0.935 / 0.283 |
+| CASIA v2: IoU / AUC / FPR | 0.312 / 0.941 / 0.120 | 0.271 / 0.939 / 0.143 |
+| DDVQA c40: AUC / FPR | 0.865 / 0.556 | 0.853 / 0.583 |
+| DiffusionFace unseen generators: TPR | 0.937 | 0.917 |
+
+v4 learns to localise diffusion face edits, but with fewer steps it is less calibrated (more real images flagged).
+Stages B / C use the v3 heads, since the LLM learns to rely on the detector's probabilities; v4 continues as a longer
+Stage-A run before it replaces them.
