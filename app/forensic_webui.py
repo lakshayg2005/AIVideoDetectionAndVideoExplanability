@@ -183,7 +183,7 @@ def build_ui():
 def main():
     global FORENSIC, LLM
     ap = argparse.ArgumentParser()
-    ap.add_argument('--stagea', default='./runs/stagea_v2/last.pt')
+    ap.add_argument('--stagea', default='./runs/stagea_v3/last.pt')
     ap.add_argument('--m2f2-shard', default='./checkpoints/llava-v1.5-7b-M2F2-Det/model-00003-of-00003.safetensors')
     ap.add_argument('--model-path', default='./checkpoints/llava-v1.5-7b-M2F2-Det', help='LLM for the explanations')
     ap.add_argument('--model-base', default=None)
