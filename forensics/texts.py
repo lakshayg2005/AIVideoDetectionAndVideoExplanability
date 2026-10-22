@@ -68,7 +68,8 @@ def grounded_text(r, mask, img, rng):
                        f'The manipulated region covers about {pct:.0f}% of the face crop.')
             if r.get('edit'):    # DiffusionFace Inpaint: the attributes the edit asked for
                 attrs = [x.strip().lower() for x in r['edit'].split(',') if x.strip()]
-                out.append(f'The edit changed the face to have {_join(attrs)}.')
+                if attrs:
+                    out.append(f'The edit changed the face to have {_join(attrs)}.')
         else:
             out.append(f'The tampered area is in the {_position(mask)} of the image and covers about {pct:.0f}% of it.')
     return ' '.join(out)

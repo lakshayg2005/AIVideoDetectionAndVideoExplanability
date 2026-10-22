@@ -67,9 +67,11 @@ class ForgeryDataset(Dataset):
             return m > 0
         return np.full((h, w), kind == 'full')
 
-    def __getitem__(self, i):
+    def render(self, i, rng, filter_p=None):
+        """Record i as a size x size PIL image (face crop, plain resize, optional filters) with its forgery
+        mask, processing mask and the applied filters."""
         r = self.recs[i]
-        rng = random.Random() if self.train else random.Random(self.seed * 1_000_003 + i)
+        filter_p = self.filter_p if filter_p is None else filter_p
         img = Image.open(os.path.join(self.roots[r['root']], r['image'])).convert('RGB')
         w, h = img.size
         forg = self._forgery_mask(r, w, h) if r['mask_kind'] != 'weak' else None
@@ -87,13 +89,19 @@ class ForgeryDataset(Dataset):
         else:
             forg = cv2.resize(forg.astype(np.uint8), (self.size, self.size), interpolation=cv2.INTER_NEAREST) > 0
 
-        proc = np.zeros_like(forg)
-        filt = np.zeros(len(FILTERS), np.float32)
-        if rng.random() < self.filter_p:
+        proc, applied = np.zeros_like(forg), []
+        if rng.random() < filter_p:
             allow = FILTERS if r['face'] else [f for f in FILTERS if f != 'beauty']
             img, proc, applied = apply(img, rng, allow=allow)
-            for a in applied:
-                filt[FILTERS.index(a['name'])] = 1
+        return img, forg, proc, applied
+
+    def __getitem__(self, i):
+        r = self.recs[i]
+        rng = random.Random() if self.train else random.Random(self.seed * 1_000_003 + i)
+        img, forg, proc, applied = self.render(i, rng)
+        filt = np.zeros(len(FILTERS), np.float32)
+        for f in applied:
+            filt[FILTERS.index(f['name'])] = 1
         a = np.asarray(img, np.float32) / 255
         if self.train and rng.random() < 0.5:
             a, forg, proc = a[:, ::-1], forg[:, ::-1], proc[:, ::-1]
