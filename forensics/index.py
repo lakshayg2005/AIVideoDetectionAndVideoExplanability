@@ -83,17 +83,20 @@ OF_SPLITS = {'Train': ('train', 'openforensics'), 'Val': ('val', 'openforensics'
              'Test-Dev': ('test', 'openforensics_testdev'), 'Test-Challenge': ('test', 'openforensics_challenge')}
 
 
-def openforensics(root, poly_json, split, min_side=48, val_frac=0.0):
+def openforensics(root, poly_json, split, min_side=48, val_frac=0.0, existing_only=False):
     """OpenForensics (COCO polygons): one record per face, cropped by its box at load time.
     A compiled manifest with a per-image 'split' field (all four official splits) is mapped to
     train / val / test, with the two test sets reported as separate sources."""
     d = json.load(open(os.path.join(root, poly_json)))
-    images = {im['id']: im for im in d['images']}
+    images = {im['id']: im for im in d['images']
+              if not existing_only or os.path.exists(os.path.join(root, im['file_name']))}
     for a in d['annotations']:
         x, y, w, h = a['bbox']
         if min(w, h) < min_side:
             continue
-        im = images[a['image_id']]
+        im = images.get(a['image_id'])
+        if im is None:
+            continue
         seg = a['segmentation']
         seg = json.loads(seg) if isinstance(seg, str) else seg
         label = int(a['category_id'])
@@ -119,24 +122,33 @@ def _df_type(name):
 
 
 def diffusionface(root, val_frac=0.15):
-    """DiffusionFace (Zenodo, CC-BY-4.0): one folder per generator of 256 px face crops. Inpaint has no
-    masks here (type and detection loss only); DiffSwap gets the whole face as a weak mask."""
+    """DiffusionFace (Zenodo, CC-BY-4.0): one folder per generator of 256 px face crops. Inpaint ships
+    images/ + masks/ + jsons/ (edited attributes, e.g. "Flat Nose, Thin Eyebrows"): pixel masks and the edit
+    prompt are attached; mask and metadata files are not samples. DiffSwap gets the whole face as a weak mask."""
     for sub in sorted(os.listdir(root)):
         d = os.path.join(root, sub)
         if not os.path.isdir(d):
             continue
         t, kind = _df_type(sub)
         held = sub.startswith(DF_HELD_OUT)
-        for dp, _, files in os.walk(d):
+        for dp, dirs, files in os.walk(d):
+            dirs[:] = sorted(x for x in dirs if x not in ('masks', 'jsons', 'prompt'))
             for f in sorted(files):
                 if not f.lower().endswith(('.png', '.jpg', '.jpeg')):
                     continue
                 rel = os.path.relpath(os.path.join(dp, f), root)
-                yield {'root': 'diffusionface', 'image': rel, 'label': int(t != 'real'), 'type': TYPES.index(t),
+                rec = {'root': 'diffusionface', 'image': rel, 'label': int(t != 'real'), 'type': TYPES.index(t),
                        'face': True, 'source': 'diffusionface_unseen' if held else 'diffusionface',
                        'split': 'test' if held else _split(rel, val_frac), 'mask_kind': kind,
                        'weak_parts': PARTS if kind == 'weak' else []}
-
+                stem = os.path.splitext(f)[0]
+                mask = os.path.join(os.path.dirname(dp), 'masks', stem + '.png')
+                if kind == 'unknown' and os.path.exists(mask):
+                    rec['mask_kind'], rec['mask'] = 'pixel', os.path.relpath(mask, root)
+                meta = os.path.join(os.path.dirname(dp), 'jsons', stem + '.json')
+                if os.path.exists(meta):
+                    rec['edit'] = json.load(open(meta)).get('prompt')
+                yield rec
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -147,10 +159,12 @@ if __name__ == '__main__':
     ap.add_argument('--split', default='train')
     ap.add_argument('--val-frac', type=float, default=0.0, help='openforensics: split one file by image')
     ap.add_argument('--comp', default='c40')
+    ap.add_argument('--existing-only', action='store_true', help='openforensics: skip images not on disk')
     args = ap.parse_args()
     gen = {'casia': lambda: casia(args.root), 'sd_inpaint': lambda: sd_inpaint(args.root),
            'ddvqa': lambda: ddvqa(args.root, args.comp),
-           'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac),
+           'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac,
+                                                  existing_only=args.existing_only),
            'diffusionface': lambda: diffusionface(args.root)}[args.source]
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     n, stats = 0, {}

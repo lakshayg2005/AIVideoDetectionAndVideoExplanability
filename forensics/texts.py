@@ -6,8 +6,12 @@ without texts get grounded descriptions from the ground-truth mask: forgery type
 (MediaPipe) or image area the mask covers, and its size. These never claim artifacts that are not
 in the labels, so they are correct about *what* and *where* but deliberately plain.
 
-python -m forensics.texts --index ../data/index/openforensics.jsonl --roots openforensics=... \
-    --mmtd ../data/MMTD-Set-34k/MMTD-Set-34k.json --out ../data/stagec/openforensics.json
+Images are rendered exactly as in Stage A (face crop, plain 336 px resize, optional filters) and saved, so
+the LLM is trained on the same inputs the forensic heads see; a share of face images gets filters and a
+sentence naming them.
+
+python -m forensics.texts --index ../data/index/*.jsonl --roots casia=... --per-source casia=3000 ... \
+    --mmtd ../data/MMTD-Set-34k/MMTD-Set-34k.json --out-dir ../data/stagec
 """
 import argparse
 import json
@@ -17,6 +21,7 @@ import random
 import numpy as np
 
 from forensics.data import ForgeryDataset, load_index
+from forensics.filters import DESCRIBE, level
 from forensics.index import TYPES
 
 QUESTIONS = [
@@ -61,6 +66,9 @@ def grounded_text(r, mask, img, rng):
             hit = [p for p, m in parts.items() if m.any() and (mask & m).sum() / m.sum() > 0.3]
             out.append(f'The manipulated region covers the {_join(hit)}, about {pct:.0f}% of the face crop.' if hit else
                        f'The manipulated region covers about {pct:.0f}% of the face crop.')
+            if r.get('edit'):    # DiffusionFace Inpaint: the attributes the edit asked for
+                attrs = [x.strip().lower() for x in r['edit'].split(',') if x.strip()]
+                out.append(f'The edit changed the face to have {_join(attrs)}.')
         else:
             out.append(f'The tampered area is in the {_position(mask)} of the image and covers about {pct:.0f}% of it.')
     return ' '.join(out)
@@ -73,41 +81,62 @@ def mmtd_texts(path):
     return out
 
 
+def filter_sentence(applied):
+    edits = '; '.join(DESCRIBE[f['name']].format(s=level(f['strength'])) for f in applied)
+    return f' Independently of that, the photo has been edited: {edits}. These filters are not the manipulation itself.'
+
+
 def main(args):
     rng = random.Random(args.seed)
     roots = dict(kv.split('=', 1) for kv in args.roots)
-    recs = load_index(args.index, args.split)
+    quota = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in args.per_source}
     mmtd = mmtd_texts(args.mmtd) if args.mmtd else {}
-    ds = ForgeryDataset(recs, roots, train=False, filter_p=0.0)
-    conv, n_mmtd = [], 0
-    for i, r in enumerate(recs):
-        stem = os.path.splitext(os.path.basename(r['image']))[0]
-        if r['source'] in ('casia', 'sd_inpaint') and stem in mmtd:
-            answer, n_mmtd = mmtd[stem], n_mmtd + 1
-        elif r['source'] in ('casia', 'sd_inpaint') and not args.grounded_fallback:
+    recs = load_index(args.index, args.split)
+    by = {}
+    for r in recs:
+        by.setdefault((r['source'], r['label']), []).append(r)
+    chosen = []
+    for (src, label), rs in sorted(by.items()):
+        if src not in quota:
             continue
+        if src in ('casia', 'sd_inpaint'):    # only images with an MMTD description
+            rs = [r for r in rs if os.path.splitext(os.path.basename(r['image']))[0] in mmtd]
+        chosen += rng.sample(rs, min(len(rs), quota[src] // 2))
+    ds = ForgeryDataset(chosen, roots, train=False)
+    img_dir = os.path.abspath(os.path.join(args.out_dir, 'images'))
+    conv, stats = [], {}
+    for i, r in enumerate(chosen):
+        filt_p = args.filter_p if r['face'] else 0.0
+        img, forg, _, applied = ds.render(i, rng, filter_p=filt_p)
+        stem = os.path.splitext(os.path.basename(r['image']))[0]
+        if r['source'] in ('casia', 'sd_inpaint'):
+            answer = mmtd[stem]
         else:
-            from PIL import Image
-            item = ds[i]
-            img = Image.fromarray(((item['pixel'].numpy().transpose(1, 2, 0) * ds_std + ds_mean) * 255).clip(0, 255).astype(np.uint8))
-            answer = grounded_text(r, item['forg'][0].numpy() > 0.5, img, rng)
-        conv.append({'id': f"{r['source']}_{i}", 'root': r['root'], 'image': r['image'], 'box': r.get('box'),
+            answer = grounded_text(r, forg, img, rng)
+        if applied:
+            answer += filter_sentence(applied)
+        path = os.path.join(img_dir, r['source'], f'{i:06d}_{stem}.jpg')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        img.save(path, quality=95)
+        conv.append({'id': f"{r['source']}_{i}", 'image': path,
                      'conversations': [{'from': 'human', 'value': '<image>\n<deepfake>\n' + rng.choice(QUESTIONS)},
                                        {'from': 'gpt', 'value': answer}]})
-    os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
-    json.dump(conv, open(args.out, 'w'), indent=1)
-    print(f'{len(conv)} conversations ({n_mmtd} MMTD, {len(conv) - n_mmtd} grounded) -> {args.out}')
+        k = f"{r['source']}/{'fake' if r['label'] else 'real'}{'/filtered' if applied else ''}"
+        stats[k] = stats.get(k, 0) + 1
+    out = os.path.join(args.out_dir, 'forensic_conversations.json')
+    json.dump(conv, open(out, 'w'), indent=1)
+    print(f'{len(conv)} conversations -> {out}')
+    print(json.dumps(stats, indent=1))
 
-
-from forensics.data import CLIP_MEAN as ds_mean, CLIP_STD as ds_std  # noqa: E402
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--index', nargs='+', required=True)
     ap.add_argument('--roots', nargs='+', required=True)
+    ap.add_argument('--per-source', nargs='+', required=True, help='source=count (split evenly real / fake)')
     ap.add_argument('--mmtd', default=None)
     ap.add_argument('--split', default='train')
-    ap.add_argument('--grounded-fallback', action='store_true', help='grounded text for CASIA/SD items without MMTD text')
-    ap.add_argument('--out', required=True)
+    ap.add_argument('--filter-p', type=float, default=0.25, help='share of face images that get filters')
+    ap.add_argument('--out-dir', required=True)
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

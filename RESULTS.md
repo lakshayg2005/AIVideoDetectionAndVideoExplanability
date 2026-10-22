@@ -104,6 +104,11 @@ Detection (AUC) and type / filter heads:
 
 ## 4. Stage-A v2: all data, official test splits (`kaggle/stagea_v2.py`)
 
+> **Correction:** the v2 DiffusionFace index also listed the 30K Inpaint *mask* PNGs (black-and-white images) as fake
+> samples, and Inpaint masks were not used. The DiffusionFace rows below are therefore inflated, and the Inpaint
+> subset had no localisation supervision. Fixed in `forensics/index.py`; v3 (section 5) re-runs Stage A on the
+> corrected index. The OpenForensics, SD_inpaint, CASIA and DDVQA rows are unaffected by the index error itself.
+
 Kaggle T4, 20000 steps x batch 12 (6 h), 343K training images: CASIA v2, SD_inpaint, DDVQA c40, OpenForensics
 (official Train; Val / Test-Dev / Test-Challenge never trained on), DiffusionFace (Real, ADM, SD1.5 text2img,
 SD1.5 img2img, Inpaint, DiffSwap; **LDM and SD2.1 text2img held out** as unseen generators). Distillation from
