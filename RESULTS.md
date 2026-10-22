@@ -151,3 +151,35 @@ Detection and type recognition (AUC step 0 -> 20000; FPR = real images called fa
   verdict compensates for (section 0: 88% judgment accuracy).
 - Open problems: scene localisation (SD_inpaint IoU 0.39, CASIA 0.33) and real images flagged as fake after heavy
   filtering in the harder sets (Test-Challenge 21%, DiffusionFace 13%).
+
+## 5. Self-explaining LLM baselines (`explain/eval_selfexplain.py`)
+
+Every model gets the same open question, *"Is this face real or fake? Explain why."*, with no label and no
+parts in the prompt. Test images: DDVQA c40 test (144), and 72 real + 72 fake validation images each from
+DiffusionFace (seen generators), CASIA v2 and SD_inpaint, plus 72 fakes from unseen generators (LDM, SD 2.1).
+Verdict = first "real"/"fake" in the answer. For faces, the parts the answer names (skin / cheeks / forehead /
+chin, eyes, eyebrows, nose, mouth; "face" alone does not count) are compared with the parts covered by the
+ground-truth mask (precision) and by the model's own predicted mask (consistency).
+
+Verdict accuracy:
+
+| Model | DDVQA c40 | DiffusionFace | unseen generators | CASIA v2 | SD_inpaint |
+|---|---|---|---|---|---|
+| Released M2F2-Det | 0.868 | 0.576 | 0.042 | 0.521 | 0.493 |
+| Self-explaining stage 3 from plain LLaVA (section 2 data) | 0.507 | 0.549 | 0.792 | 0.500 | 0.542 |
+| Forensic model, step 0 (release LLM + Stage-A v3 heads, function-preserving projector) | **0.889** | 0.597 | 0.056 | 0.597 | 0.521 |
+
+Named parts inside the ground-truth forged region (precision), DDVQA / DiffusionFace: released 0.753 / 0.770,
+plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
+
+- The released LLM decides well on its own domain but calls 96% of unseen-generator fakes real and is at chance on
+  scene edits, even though (forensic model) the detector inside it scores those fakes at ~0.99: it never learned to
+  follow the evidence token outside FF++.
+- The self-explaining model trained from plain LLaVA collapsed to one answer ("This image is fake. The eyes appear
+  overly small to the face.") for almost every image, with either prompt template. One epoch of LoRA on 12 GB learns
+  the wording (train loss 0.33) but not the one-token decision, which falls back to the majority class (66% of DDVQA
+  training images are fake). The released model also trained its vision tower and saw ~9x more samples.
+- Hence stages B / C start from the released LLM, with the new 16-dim evidence projector initialised from the released
+  2-dim projector on the real/fake inputs and zero on the new ones (`scripts/prepare_forensic_base.py`): at step 0
+  the model keeps the released behaviour (DDVQA 0.889); training then has to teach it to use the type, filter and
+  region evidence.

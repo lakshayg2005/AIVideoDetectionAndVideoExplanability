@@ -1,0 +1,37 @@
+{
+  "casia": {
+    "n": 144,
+    "verdict_acc": 0.5972222222222222,
+    "no_verdict": 0.0
+  },
+  "ddvqa_c40": {
+    "n": 144,
+    "verdict_acc": 0.8888888888888888,
+    "no_verdict": 0.006944444444444444,
+    "consistency_with_own_mask": 0.5023148148148149,
+    "recall_with_own_mask": 0.6803240740740741,
+    "precision_vs_gt_mask": 0.6029411764705882,
+    "recall_vs_gt_mask": 0.3083333333333333
+  },
+  "diffusionface": {
+    "n": 144,
+    "verdict_acc": 0.5972222222222222,
+    "no_verdict": 0.0,
+    "consistency_with_own_mask": 0.4434782608695652,
+    "recall_with_own_mask": 0.7443478260869565,
+    "precision_vs_gt_mask": 0.8571428571428571,
+    "recall_vs_gt_mask": 0.43809523809523804
+  },
+  "diffusionface_unseen": {
+    "n": 72,
+    "verdict_acc": 0.05555555555555555,
+    "no_verdict": 0.0,
+    "consistency_with_own_mask": 0.9433962264150944,
+    "recall_with_own_mask": 0.4867924528301886
+  },
+  "sd_inpaint": {
+    "n": 144,
+    "verdict_acc": 0.5208333333333334,
+    "no_verdict": 0.0
+  }
+}
