@@ -3,7 +3,7 @@
 One JSON record per sample, paths relative to a named root so the same index works locally and on
 Kaggle (roots are passed to the dataset at load time):
     root, image, label (0 real / 1 fake), type (TYPES index), face (bool), source, split,
-    mask_kind: pixel | poly | full | none | weak
+    mask_kind: pixel | poly | full | none | weak | unknown (fake, region not annotated: no mask loss)
     mask (pixel), poly (COCO polygons, image coordinates), box ([x, y, w, h] face box), weak_parts
 
 python -m forensics.index casia --root ../data/CASIA2 --out ../data/index/casia.jsonl
@@ -79,8 +79,14 @@ def ddvqa(root, comp='c40'):
                    'split': split, 'mask_kind': 'weak' if parts else 'none', 'weak_parts': parts}
 
 
+OF_SPLITS = {'Train': ('train', 'openforensics'), 'Val': ('val', 'openforensics'),
+             'Test-Dev': ('test', 'openforensics_testdev'), 'Test-Challenge': ('test', 'openforensics_challenge')}
+
+
 def openforensics(root, poly_json, split, min_side=48, val_frac=0.0):
-    """OpenForensics (COCO polygons): one record per face, cropped by its box at load time."""
+    """OpenForensics (COCO polygons): one record per face, cropped by its box at load time.
+    A compiled manifest with a per-image 'split' field (all four official splits) is mapped to
+    train / val / test, with the two test sets reported as separate sources."""
     d = json.load(open(os.path.join(root, poly_json)))
     images = {im['id']: im for im in d['images']}
     for a in d['annotations']:
@@ -91,15 +97,50 @@ def openforensics(root, poly_json, split, min_side=48, val_frac=0.0):
         seg = a['segmentation']
         seg = json.loads(seg) if isinstance(seg, str) else seg
         label = int(a['category_id'])
-        s = _split(im['id'], val_frac) if val_frac else split
+        s, source = OF_SPLITS[im['split']] if 'split' in im else (_split(im['id'], val_frac) if val_frac else split, 'openforensics')
         yield {'root': 'openforensics', 'image': im['file_name'], 'label': label,
-               'type': TYPES.index('face_swap') if label else 0, 'face': True, 'source': 'openforensics',
+               'type': TYPES.index('face_swap') if label else 0, 'face': True, 'source': source,
                'split': s, 'box': [x, y, w, h], 'mask_kind': 'poly' if label else 'none', 'poly': seg if label else None}
+
+
+DF_HELD_OUT = ('LDM', 'stable_diffusion_v_2_1')    # unseen generators, test only
+
+
+def _df_type(name):
+    if name == 'Real':
+        return 'real', 'none'
+    if name.startswith('SDv'):    # img2img at several denoising strengths
+        return 'img2img', 'full'
+    if name == 'Inpaint':
+        return 'diffusion_local', 'unknown'
+    if name == 'DiffSwap':
+        return 'face_swap', 'weak'
+    return 'generated', 'full'    # ADM, DDPM, DDIM, PNDM, LDM, text2img
+
+
+def diffusionface(root, val_frac=0.15):
+    """DiffusionFace (Zenodo, CC-BY-4.0): one folder per generator of 256 px face crops. Inpaint has no
+    masks here (type and detection loss only); DiffSwap gets the whole face as a weak mask."""
+    for sub in sorted(os.listdir(root)):
+        d = os.path.join(root, sub)
+        if not os.path.isdir(d):
+            continue
+        t, kind = _df_type(sub)
+        held = sub.startswith(DF_HELD_OUT)
+        for dp, _, files in os.walk(d):
+            for f in sorted(files):
+                if not f.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    continue
+                rel = os.path.relpath(os.path.join(dp, f), root)
+                yield {'root': 'diffusionface', 'image': rel, 'label': int(t != 'real'), 'type': TYPES.index(t),
+                       'face': True, 'source': 'diffusionface_unseen' if held else 'diffusionface',
+                       'split': 'test' if held else _split(rel, val_frac), 'mask_kind': kind,
+                       'weak_parts': PARTS if kind == 'weak' else []}
 
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', choices=['casia', 'sd_inpaint', 'ddvqa', 'openforensics'])
+    ap.add_argument('source', choices=['casia', 'sd_inpaint', 'ddvqa', 'openforensics', 'diffusionface'])
     ap.add_argument('--root', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--poly-json', default='Val_poly.json')
@@ -109,7 +150,8 @@ if __name__ == '__main__':
     args = ap.parse_args()
     gen = {'casia': lambda: casia(args.root), 'sd_inpaint': lambda: sd_inpaint(args.root),
            'ddvqa': lambda: ddvqa(args.root, args.comp),
-           'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac)}[args.source]
+           'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac),
+           'diffusionface': lambda: diffusionface(args.root)}[args.source]
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     n, stats = 0, {}
     with open(args.out, 'w') as f:

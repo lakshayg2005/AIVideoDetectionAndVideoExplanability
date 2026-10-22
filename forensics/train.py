@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader, WeightedRandomSampler
 from forensics.data import ForgeryDataset, load_index
 from forensics.model import M2F2Seg
 
-LOSS_W = {'ce': 1.0, 'type': 1.0, 'filter': 0.5, 'forg': 1.0, 'proc': 0.5, 'aux': 0.5}
+LOSS_W = {'ce': 1.0, 'type': 1.0, 'filter': 0.5, 'forg': 1.0, 'proc': 0.5, 'aux': 0.5, 'distill': 1.0}
 
 
 def dice_bce(logits, target, weight):
@@ -37,7 +37,7 @@ def dice_bce(logits, target, weight):
     return ((bce + dice) * weight).sum() / weight.sum().clamp(min=1e-6)
 
 
-def losses(out, b, ablate=()):
+def losses(out, b, ablate=(), distill_sources=()):
     w = b['mask_w']
     L = {'ce': F.cross_entropy(out['logits'], b['label']),
          'type': F.cross_entropy(out['type_logits'], b['type']),
@@ -45,6 +45,10 @@ def losses(out, b, ablate=()):
          'forg': dice_bce(out['mask_logits'][:, :1], b['forg'], w),
          'proc': dice_bce(out['mask_logits'][:, 1:], b['proc'], torch.ones_like(w)),
          'aux': dice_bce(out['aux_logits'], b['forg'], w)}
+    if 'teacher_logits' in out:    # keep the released detector's decisions on its own domain
+        m = torch.tensor([s.startswith(distill_sources) for s in b['source']], device=w.device)
+        L['distill'] = (F.kl_div(F.log_softmax(out['logits'][m], -1), F.softmax(out['teacher_logits'][m], -1),
+                                 reduction='batchmean') if m.any() else out['logits'].sum() * 0)
     for k in ablate:
         L[k] = L[k] * 0
     return sum(LOSS_W[k] * v for k, v in L.items()), {k: v.item() for k, v in L.items()}
@@ -104,8 +108,10 @@ def evaluate(model, loader, dev, size=336):
                 g['point_paper'].append(float(gt.flatten()[paper[i, 0].flatten().argmax()].item()))
     res = {}
     for src, g in sorted(acc.items()):
-        r = {'n': len(g['y']), 'auc': auc(g['y'], g['p']),
-             'acc': float(np.mean((np.array(g['p']) > 0.5) == np.array(g['y']))),
+        y, p = np.array(g['y']), np.array(g['p'])
+        r = {'n': len(g['y']), 'auc': auc(g['y'], g['p']), 'acc': float(np.mean((p > 0.5) == y)),
+             'fpr': float(np.mean(p[y == 0] > 0.5)) if (y == 0).any() else float('nan'),
+             'tpr': float(np.mean(p[y == 1] > 0.5)) if (y == 1).any() else float('nan'),
              'type_acc': float(np.mean(g['type_ok']))}
         for k in ('iou', 'f1', 'point', 'point_paper', 'fp_area', 'proc_iou'):
             if g[k]:
@@ -141,6 +147,9 @@ def main(args):
 
     model = M2F2Seg()
     print('loaded from M2F2 checkpoint (vision, detector tensors):', model.load_m2f2(args.m2f2_shard), flush=True)
+    if args.distill:
+        LOSS_W['distill'] = args.distill
+        model.make_teacher()
     model.to(dev)
     if dev.type == 'cuda':
         model.clip.half()
@@ -178,7 +187,7 @@ def main(args):
             g['lr'] = lr * lr_f
         with torch.autocast('cuda', dtype=torch.float16, enabled=dev.type == 'cuda'):
             out = model(b['pixel'])
-        loss, parts = losses({k: v.float() for k, v in out.items()}, b, ablate)
+        loss, parts = losses({k: v.float() for k, v in out.items()}, b, ablate, tuple(args.distill_sources))
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
         scaler.unscale_(opt)
@@ -224,5 +233,7 @@ if __name__ == '__main__':
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--ablate', default='', help='comma list of loss terms to switch off, e.g. forg,aux')
     ap.add_argument('--max-minutes', type=float, default=0, help='stop (after eval + save) when exceeded')
+    ap.add_argument('--distill', type=float, default=0.0, help='weight of distillation from the released detector')
+    ap.add_argument('--distill-sources', nargs='+', default=['ddvqa'], help='source prefixes it applies to')
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

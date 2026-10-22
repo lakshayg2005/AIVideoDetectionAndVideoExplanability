@@ -8,7 +8,10 @@ New:
   aux map     - affine read-out of the paper's 24x24 score map, supervised with the forgery mask
   TypeHead    - [CLS, DenseNet feature, patch features pooled under the predicted mask] ->
                 6 forgery types + 6 filters
+  teacher     - optional frozen copy of the released detector; its real/fake logits are distilled on
+                the paper's own domain (FF++ / DDVQA) so fine-tuning on other data does not erode it
 """
+import copy
 import os
 import sys
 
@@ -61,6 +64,18 @@ class M2F2Seg(nn.Module):
         self.aux = nn.Parameter(torch.tensor([10.0, 0.0]))    # score-map read-out: a * cos + b
         self.type_head = nn.Sequential(nn.Linear(3 * 1024, 512), nn.GELU(), nn.Dropout(0.1),
                                        nn.Linear(512, N_TYPES + N_FILTERS))
+        self.teacher, self._teacher_text = None, None
+
+    def make_teacher(self):
+        """Call after load_m2f2: freeze a copy of the released detector."""
+        self.teacher = copy.deepcopy(self.det).requires_grad_(False).eval()
+
+    def train(self, mode=True):
+        super().train(mode)
+        self.clip.eval()
+        if self.teacher is not None:
+            self.teacher.eval()
+        return self
 
     def load_m2f2(self, shard_path):
         """Vision tower + detector from the released LLaVA-M2F2 checkpoint shard."""
@@ -78,9 +93,9 @@ class M2F2Seg(nn.Module):
         assert not miss_d, miss_d[:5]
         return len(vis), len(det)
 
-    def densenet(self, x):
+    def densenet(self, x, det=None):
         feats = {}
-        for name, m in self.det.deepfake_encoder.named_children():
+        for name, m in (det or self.det).deepfake_encoder.named_children():
             x = m(x)
             if name in ('denseblock1', 'denseblock2', 'denseblock3'):
                 feats[name] = x
@@ -114,10 +129,20 @@ class M2F2Seg(nn.Module):
         wgt = wgt.flatten(1).unsqueeze(-1) + 1e-4
         pooled = (patches * wgt).sum(1) / wgt.sum(1)
         th = self.type_head(torch.cat([cls, dfeat, pooled], -1))
-        return {'logits': logits, 'mask_logits': mask_logits, 'aux_logits': aux_logits,
-                'type_logits': th[:, :N_TYPES], 'filter_logits': th[:, N_TYPES:],
-                'paper_map': self.patch_contribution(scores).view(B, 1, side, side)}
+        out = {'logits': logits, 'mask_logits': mask_logits, 'aux_logits': aux_logits,
+               'type_logits': th[:, :N_TYPES], 'filter_logits': th[:, N_TYPES:],
+               'paper_map': self.patch_contribution(scores).view(B, 1, side, side)}
+        if self.teacher is not None:
+            with torch.no_grad():
+                t = self.teacher
+                if self._teacher_text is None:
+                    self._teacher_text = t.text_proj(t.clip_text_encoder().float())
+                tv = t.vision_proj(hs[-1])
+                ts = F.cosine_similarity(tv[:, 1:], self._teacher_text.unsqueeze(1).expand_as(tv[:, 1:]), dim=-1)
+                tdf = t.deepfake_proj(self.densenet(pixel, t)[3].mean(dim=(2, 3)))
+                out['teacher_logits'] = t.output(torch.cat([t.clip_text_alpha * ts, t.clip_vision_alpha * tv[:, 0], tdf], -1))
+        return out
 
     def trainable_state_dict(self):
         return {k: v for k, v in self.state_dict().items()
-                if not k.startswith('clip.') and not k.startswith('det.clip_text_encoder.model.')}
+                if not k.startswith(('clip.', 'det.clip_text_encoder.model.', 'teacher.'))}

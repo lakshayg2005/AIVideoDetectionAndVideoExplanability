@@ -19,7 +19,7 @@ from forensics.filters import FILTERS, apply
 
 CLIP_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], np.float32)
 CLIP_STD = np.array([0.26862954, 0.26130258, 0.27577711], np.float32)
-MASK_WEIGHT = {'pixel': 1.0, 'poly': 1.0, 'full': 1.0, 'none': 1.0, 'weak': 0.3}
+MASK_WEIGHT = {'pixel': 1.0, 'poly': 1.0, 'full': 1.0, 'none': 1.0, 'weak': 0.3, 'unknown': 0.0}
 
 
 def load_index(paths, split=None, max_per_source=0, seed=0):
