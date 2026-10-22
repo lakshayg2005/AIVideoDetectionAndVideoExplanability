@@ -101,3 +101,48 @@ Detection (AUC) and type / filter heads:
   Train / Val / Test-Dev / Test-Challenge splits.
 - After training, the paper map's pointing game is not comparable (the output layer weights change sign),
   so only its step-0 value is reported.
+
+## 4. Stage-A v2: all data, official test splits (`kaggle/stagea_v2.py`)
+
+Kaggle T4, 20000 steps x batch 12 (6 h), 343K training images: CASIA v2, SD_inpaint, DDVQA c40, OpenForensics
+(official Train; Val / Test-Dev / Test-Challenge never trained on), DiffusionFace (Real, ADM, SD1.5 text2img,
+SD1.5 img2img, Inpaint, DiffSwap; **LDM and SD2.1 text2img held out** as unseen generators). Distillation from
+the released detector on DDVQA. Up to 300 evaluation images per source and class, plus a fixed-seed filtered
+copy of every face set. Log: `outputs/stagea_v2/log.jsonl`. Numbers below are at step 20000.
+
+Localisation on fakes with pixel masks (paper map = released detector, step 0):
+
+| Test set | pointing, paper map | pointing, ours | IoU | F1 | mask area on reals |
+|---|---|---|---|---|---|
+| OpenForensics Test-Dev | 0.843 | **1.000** | **0.914** | **0.954** | 0.7% |
+| OpenForensics Test-Dev, filtered | 0.773 | **0.993** | 0.857 | 0.907 | 0.2% |
+| OpenForensics Test-Challenge (perturbed, harder) | 0.720 | **0.957** | 0.726 | 0.777 | 2.0% |
+| OpenForensics Test-Challenge, filtered | 0.700 | **0.970** | 0.705 | 0.765 | 2.1% |
+| SD_inpaint (scenes) | 0.167 | **0.813** | 0.387 | 0.483 | 0.4% |
+| CASIA v2 (scenes) | 0.113 | **0.593** | 0.327 | 0.407 | 0.3% |
+
+Detection and type recognition (AUC step 0 -> 20000; FPR = real images called fake at 0.5):
+
+| Test set | AUC | FPR | TPR | type acc | filter F1 |
+|---|---|---|---|---|---|
+| OpenForensics Test-Dev | 0.729 -> **0.998** | 0.047 | 0.990 | 0.997 | – |
+| OpenForensics Test-Dev, filtered | 0.611 -> **0.991** | 0.033 | 0.943 | 0.982 | 0.831 |
+| OpenForensics Test-Challenge | 0.497 -> **0.926** | 0.179 | 0.867 | 0.918 | – |
+| OpenForensics Test-Challenge, filtered | 0.492 -> **0.906** | 0.207 | 0.867 | 0.900 | 0.735 |
+| DiffusionFace (seen generators) | 0.718 -> **0.996** | 0.030 | 0.960 | 0.998 | – |
+| DiffusionFace, filtered | 0.664 -> **0.938** | 0.133 | 0.857 | 0.892 | 0.865 |
+| DiffusionFace **unseen generators** (fakes only) | – | – | 0.123 -> **0.937** | 0.980 | – |
+| DiffusionFace unseen, filtered | – | – | 0.223 -> **0.800** | 0.793 | 0.845 |
+| SD_inpaint | 0.474 -> **0.943** | 0.197 | 0.900 | 0.877 | – |
+| CASIA v2 | 0.654 -> **0.944** | 0.120 | 0.863 | 0.905 | – |
+| DDVQA c40 | **0.863** -> 0.845 | 0.569 | 0.931 | 0.764 | – |
+| DDVQA c40, filtered | **0.851** -> 0.820 | 0.500 | 0.889 | 0.743 | 0.829 |
+
+- Face swaps on held-out test images are localised almost perfectly (Test-Dev IoU 0.91, pointing 1.00), and
+  still well on the perturbed Test-Challenge set (IoU 0.73, pointing 0.96).
+- Unseen diffusion generators (LDM, SD 2.1) are detected 94% of the time (80% after filtering).
+- Distillation reduced the DDVQA regression from -0.052 (pilot) to -0.018 AUC. Its high FPR at 0.5 is already
+  present in the released detector (0.514 at step 0): the head is poorly calibrated on c40, which the LLM
+  verdict compensates for (section 0: 88% judgment accuracy).
+- Open problems: scene localisation (SD_inpaint IoU 0.39, CASIA 0.33) and real images flagged as fake after heavy
+  filtering in the harder sets (Test-Challenge 21%, DiffusionFace 13%).
