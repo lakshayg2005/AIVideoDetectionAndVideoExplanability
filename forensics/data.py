@@ -19,6 +19,8 @@ from forensics.filters import FILTERS, apply
 
 CLIP_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], np.float32)
 CLIP_STD = np.array([0.26862954, 0.26130258, 0.27577711], np.float32)
+IMNET_MEAN = np.array([0.485, 0.456, 0.406], np.float32)    # DINOv2 / high-res branch
+IMNET_STD = np.array([0.229, 0.224, 0.225], np.float32)
 MASK_WEIGHT = {'pixel': 1.0, 'poly': 1.0, 'full': 1.0, 'none': 1.0, 'weak': 0.3, 'unknown': 0.0}
 
 
@@ -46,8 +48,11 @@ def _crop_box(w, h, box, margin=0.3):
 
 
 class ForgeryDataset(Dataset):
-    def __init__(self, records, roots, size=336, train=True, filter_p=0.3, seed=0):
-        self.recs, self.roots, self.size = records, roots, size
+    """hr_size > 0 also returns the image and masks at that size (high-res heatmap branch); the 336 px CLIP input is
+    then a resize of the high-res render, so both views show the same crop and filters."""
+
+    def __init__(self, records, roots, size=336, train=True, filter_p=0.3, seed=0, hr_size=0):
+        self.recs, self.roots, self.size, self.hr_size = records, roots, size, hr_size
         self.train, self.filter_p, self.seed = train, filter_p, seed
 
     def __len__(self):
@@ -67,10 +72,11 @@ class ForgeryDataset(Dataset):
             return m > 0
         return np.full((h, w), kind == 'full')
 
-    def render(self, i, rng, filter_p=None):
+    def render(self, i, rng, filter_p=None, size=None):
         """Record i as a size x size PIL image (face crop, plain resize, optional filters) with its forgery
         mask, processing mask and the applied filters."""
         r = self.recs[i]
+        size = size or self.size
         filter_p = self.filter_p if filter_p is None else filter_p
         img = Image.open(os.path.join(self.roots[r['root']], r['image'])).convert('RGB')
         w, h = img.size
@@ -79,15 +85,15 @@ class ForgeryDataset(Dataset):
             x0, y0, x1, y1 = _crop_box(w, h, r['box'])
             img = img.crop((x0, y0, x1, y1))
             forg = forg[y0:y1, x0:x1] if forg is not None else None
-        img = img.resize((self.size, self.size), Image.BICUBIC)
+        img = img.resize((size, size), Image.BICUBIC)
         if forg is None:    # weak: union of the annotated parts on the crop
             from explain.face_parts import part_masks
             parts = part_masks(img)[0]
-            forg = np.zeros((self.size, self.size), bool)
+            forg = np.zeros((size, size), bool)
             for p in r['weak_parts']:
                 forg |= parts[p]
         else:
-            forg = cv2.resize(forg.astype(np.uint8), (self.size, self.size), interpolation=cv2.INTER_NEAREST) > 0
+            forg = cv2.resize(forg.astype(np.uint8), (size, size), interpolation=cv2.INTER_NEAREST) > 0
 
         proc, applied = np.zeros_like(forg), []
         if rng.random() < filter_p:
@@ -98,15 +104,27 @@ class ForgeryDataset(Dataset):
     def __getitem__(self, i):
         r = self.recs[i]
         rng = random.Random() if self.train else random.Random(self.seed * 1_000_003 + i)
-        img, forg, proc, applied = self.render(i, rng)
+        img, forg, proc, applied = self.render(i, rng, size=self.hr_size or self.size)
         filt = np.zeros(len(FILTERS), np.float32)
         for f in applied:
             filt[FILTERS.index(f['name'])] = 1
+        flip = self.train and rng.random() < 0.5
+        hr = {}
+        if self.hr_size:
+            h = np.asarray(img, np.float32) / 255
+            fh, ph = forg, proc
+            if flip:
+                h, fh, ph = h[:, ::-1], fh[:, ::-1], ph[:, ::-1]
+            hr = {'pixel_hr': torch.from_numpy(np.ascontiguousarray(((h - IMNET_MEAN) / IMNET_STD).transpose(2, 0, 1))),
+                  'forg_hr': torch.from_numpy(np.ascontiguousarray(fh[None]).astype(np.float32)),
+                  'proc_hr': torch.from_numpy(np.ascontiguousarray(ph[None]).astype(np.float32))}
+            small = lambda m: cv2.resize(m.astype(np.uint8), (self.size, self.size), interpolation=cv2.INTER_NEAREST) > 0
+            img, forg, proc = img.resize((self.size, self.size), Image.BICUBIC), small(forg), small(proc)
         a = np.asarray(img, np.float32) / 255
-        if self.train and rng.random() < 0.5:
+        if flip:
             a, forg, proc = a[:, ::-1], forg[:, ::-1], proc[:, ::-1]
         a = (a - CLIP_MEAN) / CLIP_STD
-        return {
+        return {**hr,
             'pixel': torch.from_numpy(np.ascontiguousarray(a.transpose(2, 0, 1))),
             'forg': torch.from_numpy(np.ascontiguousarray(forg[None]).astype(np.float32)),
             'proc': torch.from_numpy(np.ascontiguousarray(proc[None]).astype(np.float32)),

@@ -42,8 +42,8 @@ def losses(out, b, ablate=(), distill_sources=()):
     L = {'ce': F.cross_entropy(out['logits'], b['label']),
          'type': F.cross_entropy(out['type_logits'], b['type']),
          'filter': F.binary_cross_entropy_with_logits(out['filter_logits'], b['filters']),
-         'forg': dice_bce(out['mask_logits'][:, :1], b['forg'], w),
-         'proc': dice_bce(out['mask_logits'][:, 1:], b['proc'], torch.ones_like(w)),
+         'forg': dice_bce(out['mask_logits'][:, :1], b.get('forg_hr', b['forg']), w),
+         'proc': dice_bce(out['mask_logits'][:, 1:], b.get('proc_hr', b['proc']), torch.ones_like(w)),
          'aux': dice_bce(out['aux_logits'], b['forg'], w)}
     if 'teacher_logits' in out:    # keep the released detector's decisions on its own domain
         m = torch.tensor([s.startswith(distill_sources) for s in b['source']], device=w.device)
@@ -82,7 +82,7 @@ def evaluate(model, loader, dev, size=336):
     for b in loader:
         b = to_dev(b, dev)
         with torch.autocast('cuda', dtype=torch.float16, enabled=dev.type == 'cuda'):
-            out = model(b['pixel'])
+            out = model(b['pixel'], b.get('pixel_hr'))
         p_fake = torch.softmax(out['logits'].float(), -1)[:, 1]
         prob = torch.sigmoid(F.interpolate(out['mask_logits'][:, :1].float(), size=(size, size), mode='bilinear', align_corners=False))
         paper = F.interpolate(out['paper_map'].float(), size=(size, size), mode='bilinear', align_corners=False)
@@ -132,20 +132,26 @@ def main(args):
     val_recs = load_index(args.index, args.val_split, args.max_val_per_source, args.seed)
     print(f'train {len(train_recs)}  val {len(val_recs)}', flush=True)
 
+    # source: every (source, label) equally often; type: real images balanced over sources, fakes over forgery
+    # types, so rare types (e.g. diffusion face edits) are not a few percent of the samples
+    group = (lambda r: (r['source'], r['label'])) if args.balance == 'source' else \
+            (lambda r: ('real', r['source']) if r['label'] == 0 else ('fake', r['type']))
     counts = defaultdict(int)
     for r in train_recs:
-        counts[(r['source'], r['label'])] += 1
-    weights = [1.0 / counts[(r['source'], r['label'])] for r in train_recs]
+        counts[group(r)] += 1
+    n_groups = {lab: sum(1 for g in counts if (g[1] if args.balance == 'source' else g[0] == 'fake') == lab) for lab in (0, 1)}
+    weights = [1.0 / counts[group(r)] / n_groups[r['label']] for r in train_recs]
+    print('sampling groups:', {str(k): v for k, v in sorted(counts.items(), key=str)}, flush=True)
     sampler = WeightedRandomSampler(weights, num_samples=args.steps * args.bs, replacement=True)
-    train_dl = DataLoader(ForgeryDataset(train_recs, roots, train=True, filter_p=args.filter_p), batch_size=args.bs,
+    train_dl = DataLoader(ForgeryDataset(train_recs, roots, train=True, filter_p=args.filter_p, hr_size=args.hr_size), batch_size=args.bs,
                           sampler=sampler, num_workers=args.workers, collate_fn=collate, pin_memory=True, drop_last=True,
                           persistent_workers=args.workers > 0)
     val_ds = torch.utils.data.ConcatDataset([
-        ForgeryDataset(val_recs, roots, train=False, filter_p=0.0, seed=1),
-        ForgeryDataset([r for r in val_recs if r['face']], roots, train=False, filter_p=1.0, seed=2)])
+        ForgeryDataset(val_recs, roots, train=False, filter_p=0.0, seed=1, hr_size=args.hr_size),
+        ForgeryDataset([r for r in val_recs if r['face']], roots, train=False, filter_p=1.0, seed=2, hr_size=args.hr_size)])
     val_dl = DataLoader(val_ds, batch_size=args.bs, num_workers=args.workers, collate_fn=collate)
 
-    model = M2F2Seg()
+    model = M2F2Seg(hires=args.hr_size > 0, use_dino=not args.no_dino)
     print('loaded from M2F2 checkpoint (vision, detector tensors):', model.load_m2f2(args.m2f2_shard), flush=True)
     if args.distill:
         LOSS_W['distill'] = args.distill
@@ -153,7 +159,9 @@ def main(args):
     model.to(dev)
     if dev.type == 'cuda':
         model.clip.half()
-    new = [p for n, p in model.named_parameters() if p.requires_grad and n.startswith(('decoder', 'type_head', 'aux'))]
+        if model.hr is not None and model.hr.dino is not None:
+            model.hr.dino.half()
+    new = [p for n, p in model.named_parameters() if p.requires_grad and n.startswith(('decoder', 'type_head', 'aux', 'hr.', 'refine'))]
     dn = list(model.det.deepfake_encoder.parameters())
     old = [p for n, p in model.named_parameters() if p.requires_grad and n.startswith('det.') and 'det.deepfake_encoder.' not in n]
     opt = torch.optim.AdamW([{'params': new, 'lr': args.lr}, {'params': dn, 'lr': args.lr_backbone},
@@ -186,7 +194,7 @@ def main(args):
         for g, lr in zip(opt.param_groups, base_lrs):
             g['lr'] = lr * lr_f
         with torch.autocast('cuda', dtype=torch.float16, enabled=dev.type == 'cuda'):
-            out = model(b['pixel'])
+            out = model(b['pixel'], b.get('pixel_hr'))
         loss, parts = losses({k: v.float() for k, v in out.items()}, b, ablate, tuple(args.distill_sources))
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward()
@@ -235,5 +243,8 @@ if __name__ == '__main__':
     ap.add_argument('--max-minutes', type=float, default=0, help='stop (after eval + save) when exceeded')
     ap.add_argument('--distill', type=float, default=0.0, help='weight of distillation from the released detector')
     ap.add_argument('--distill-sources', nargs='+', default=['ddvqa'], help='source prefixes it applies to')
+    ap.add_argument('--hr-size', type=int, default=0, help='high-res heatmap branch input size (v5: 672), 0 = off')
+    ap.add_argument('--no-dino', action='store_true', help='high-res branch without DINOv2 (ablation)')
+    ap.add_argument('--balance', default='source', choices=['source', 'type'])
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

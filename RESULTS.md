@@ -168,6 +168,7 @@ Verdict accuracy:
 | Released M2F2-Det | 0.868 | 0.576 | 0.042 | 0.521 | 0.493 |
 | Self-explaining stage 3 from plain LLaVA (section 2 data) | 0.507 | 0.549 | 0.792 | 0.500 | 0.542 |
 | Forensic model, step 0 (release LLM + Stage-A v3 heads, function-preserving projector) | **0.889** | 0.597 | 0.056 | 0.597 | 0.521 |
+| Forensic model after Stage B (projector only, 150 steps x 32, LLM frozen) | 0.806 | 0.597 | 0.194 | **0.764** | **0.708** |
 
 Named parts inside the ground-truth forged region (precision), DDVQA / DiffusionFace: released 0.753 / 0.770,
 plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
@@ -183,6 +184,9 @@ plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
   2-dim projector on the real/fake inputs and zero on the new ones (`scripts/prepare_forensic_base.py`): at step 0
   the model keeps the released behaviour (DDVQA 0.889); training then has to teach it to use the type, filter and
   region evidence.
+- Stage B alone (only the evidence projector trains) already moves the frozen LLM towards the detector on scene edits
+  (CASIA 0.597 -> 0.764, SD_inpaint 0.521 -> 0.708, unseen generators 0.056 -> 0.194) at some cost on DDVQA
+  (0.889 -> 0.806); Stage C (LoRA on the LLM) continues from this projector.
 
 ## 6. Stage-A v3 and v4
 
