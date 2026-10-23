@@ -6,6 +6,11 @@ without texts get grounded descriptions from the ground-truth mask: forgery type
 (MediaPipe) or image area the mask covers, and its size. These never claim artifacts that are not
 in the labels, so they are correct about *what* and *where* but deliberately plain.
 
+v2 additions: region names from a teacher VLM that saw the ground-truth box (explain/teacher_annotate.py,
+e.g. "the head of the panda") for images without an MMTD text; FakeClue descriptions; the UI's heatmap hint in
+part of the questions (the true region, or the UI's no-region hint for whole-image fakes); and lighting / shadow
+clauses removed from most MMTD and FakeClue texts, which mention them in 44% / 95% of answers whatever the image.
+
 Images are rendered exactly as in Stage A (face crop, plain 336 px resize, optional filters) and saved, so
 the LLM is trained on the same inputs the forensic heads see; a share of face images gets filters and a
 sentence naming them.
@@ -17,6 +22,7 @@ import argparse
 import json
 import os
 import random
+import re
 
 import numpy as np
 
@@ -38,6 +44,51 @@ TYPE_TEXT = {
 }
 
 
+NO_REGION_HINT = ('The forensic heatmap does not localise a clear manipulated region; '
+                  'do not guess a location if the evidence is not localised.')    # as app/forensic_webui.py _grounding
+LIGHTING = re.compile(r'\b(lighting|lit|shadow\w*|shading|illuminat\w*|light (source|direction|conditions?))\b', re.I)
+HEADER = re.compile(r'^\s*(\d\.\s*[A-Za-z /]{3,80}:|[-*\u2022]\s*([A-Z][\w /]{0,30}:)?)\s*')    # "2. Judgment basis: ", "- Edges: "
+
+
+def thin_lighting(text, rng, keep):
+    """Drop the lighting / shadow clauses (sentences, ';' clauses or whole bullet points) from all but a `keep` share
+    of texts. MMTD and FakeClue state them for nearly every image, real or fake, so the explainer learned to always
+    say them. A text left with no evidence besides its headers is returned unchanged."""
+    if rng.random() < keep or not LIGHTING.search(text):
+        return text
+    out = []
+    for line in text.split('\n'):
+        head = HEADER.match(line)
+        head, body = (head.group(0), line[head.end():]) if head else ('', line)
+        if not body.strip() or not LIGHTING.search(body):
+            out.append(line)
+            continue
+        parts = re.split(r'((?<=[.!?])\s+|;\s*)', body)
+        kept = [(c, sp) for c, sp in zip(parts[0::2], parts[1::2] + ['']) if c.strip() and not LIGHTING.search(c)]
+        if not kept:
+            if head and head.strip()[0].isdigit():    # numbered section header: keep it, its bullets may follow
+                out.append(head.rstrip())
+            continue    # a bullet point or sentence group about lighting only
+        body = (''.join(c + sp for c, sp in kept[:-1]) + kept[-1][0]).rstrip(' ;,')
+        body = re.sub(r'^(Additionally|Furthermore|Moreover|Also|In addition),\s*', '', body)    # its antecedent was dropped
+        if body[-1] not in '.!?:':
+            body += '.'
+        out.append(head + re.sub(r'([.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), body[0].upper() + body[1:]))
+    # every numbered section still needs some content after its header
+    sections = re.split(r'^\s*\d\.\s*[A-Za-z /]{3,80}:', '\n'.join(out), flags=re.M)[1:]
+    if any(not sec.strip() for sec in sections):
+        return text
+    return '\n'.join(out)
+
+
+def _noun(region):
+    """'the head of the panda' / 'Mouth' / 'a man holding a box' -> 'head of the panda' / 'mouth' / 'man holding a box'"""
+    region = re.sub(r'^(the|a|an)\s+', '', region.strip().rstrip('.'), flags=re.I)
+    return region[:1].lower() + region[1:] if region[1:2].islower() or len(region) == 1 else region
+EDIT_PHRASE = {'not bald': 'a full head of hair', 'bald': 'a bald head', 'mouth slighly open': 'a slightly open mouth',
+               'mouth closed': 'a closed mouth', 'smiling': 'a smile'}    # DiffusionFace (CelebA) attribute names
+
+
 def _join(xs):
     return xs[0] if len(xs) == 1 else ', '.join(xs[:-1]) + ' and ' + xs[-1]
 
@@ -50,7 +101,7 @@ def _position(mask):
     return 'centre' if (v, h) == ('middle', 'centre') else f'{v} {h}' if v != 'middle' else h if h != 'centre' else v
 
 
-def grounded_text(r, mask, img, rng):
+def grounded_text(r, mask, img, rng, region_name=None):
     if r['label'] == 0:
         return 'This image is real. No manipulated region was found; the content is consistent with an unedited photograph.'
     t = TYPES[r['type']]
@@ -66,10 +117,16 @@ def grounded_text(r, mask, img, rng):
             hit = [p for p, m in parts.items() if m.any() and (mask & m).sum() / m.sum() > 0.3]
             out.append(f'The manipulated region covers the {_join(hit)}, about {pct:.0f}% of the face crop.' if hit else
                        f'The manipulated region covers about {pct:.0f}% of the face crop.')
+            if region_name and not any(h.rstrip('s') in region_name.lower() for h in hit):    # e.g. hair
+                out.append(f'The edited area shows the {_noun(region_name)}.')
             if r.get('edit'):    # DiffusionFace Inpaint: the attributes the edit asked for
                 attrs = [x.strip().lower() for x in r['edit'].split(',') if x.strip()]
+                attrs = [EDIT_PHRASE.get(a, 'a ' + a if a.endswith('nose') else a) for a in attrs]
                 if attrs:
                     out.append(f'The edit changed the face to have {_join(attrs)}.')
+        elif region_name:
+            out.append(f'The tampered area is the {_noun(region_name)}, in the {_position(mask)} of the image, '
+                       f'covering about {pct:.0f}% of it.')
         else:
             out.append(f'The tampered area is in the {_position(mask)} of the image and covers about {pct:.0f}% of it.')
     return ' '.join(out)
@@ -78,6 +135,8 @@ def grounded_text(r, mask, img, rng):
 def region_hint(r, mask, img):
     """Where the forged region is, phrased like the UI's heatmap hint (app/forensic_webui.py _grounding). Faces use
     MediaPipe parts (only with landmarks), other images the position. None if there is no usable region."""
+    if r['label'] == 1 and TYPES[r['type']] in ('img2img', 'generated'):
+        return NO_REGION_HINT
     if r['label'] == 0 or r['mask_kind'] not in ('pixel', 'poly', 'weak') or not mask.any() or mask.mean() > 0.9:
         return None
     pct = 100 * mask.mean()
@@ -107,6 +166,13 @@ def main(args):
     roots = dict(kv.split('=', 1) for kv in args.roots)
     quota = {kv.split('=')[0]: int(kv.split('=')[1]) for kv in args.per_source}
     mmtd = mmtd_texts(args.mmtd) if args.mmtd else {}
+    teacher = {}
+    for t in args.teacher or []:
+        for l in open(t):
+            d = json.loads(l)
+            if d['region']:
+                teacher[d['key']] = d['region']
+    key = lambda r: f"{r['root']}/{r['image']}"
     recs = load_index(args.index, args.split)
     by = {}
     for r in recs:
@@ -115,9 +181,13 @@ def main(args):
     for (src, label), rs in sorted(by.items()):
         if src not in quota:
             continue
-        if src in ('casia', 'sd_inpaint'):    # only images with an MMTD description
-            rs = [r for r in rs if os.path.splitext(os.path.basename(r['image']))[0] in mmtd]
-        chosen += rng.sample(rs, min(len(rs), quota[src] // 2))
+        if src in ('casia', 'sd_inpaint'):    # only images with an MMTD description or a teacher region name
+            rs = [r for r in rs if os.path.splitext(os.path.basename(r['image']))[0] in mmtd or key(r) in teacher]
+        n = min(len(rs), quota[src] // 2)
+        named = [r for r in rs if key(r) in teacher]    # teacher-annotated images first
+        chosen += rng.sample(named, min(n, len(named)))
+        rest = [r for r in rs if key(r) not in teacher]
+        chosen += rng.sample(rest, min(len(rest), n - min(n, len(named))))
     ds = ForgeryDataset(chosen, roots, train=False)
     img_dir = os.path.abspath(os.path.join(args.out_dir, 'images'))
     conv, stats = [], {}
@@ -126,12 +196,12 @@ def main(args):
         img, forg, _, applied = ds.render(i, rng, filter_p=filt_p)
         stem = os.path.splitext(os.path.basename(r['image']))[0]
         if r.get('text'):    # FakeClue
-            answer = r['text']
-        elif r['source'] in ('casia', 'sd_inpaint'):
-            answer = mmtd[stem]
+            answer = thin_lighting(r['text'], rng, args.lighting_keep)
+        elif r['source'] in ('casia', 'sd_inpaint') and stem in mmtd:
+            answer = thin_lighting(mmtd[stem], rng, args.lighting_keep)
         else:
-            answer = grounded_text(r, forg, img, rng)
-        hint = region_hint(r, forg, img) if rng.random() < args.region_prompt_p else None
+            answer = grounded_text(r, forg, img, rng, teacher.get(key(r)))
+        hint = region_hint(r, forg, img) if rng.random() < args.region_prompt_p and not r.get('text') else None
         if applied:
             answer += filter_sentence(applied)
         path = os.path.join(img_dir, r['source'], f'{i:06d}_{stem}.jpg')
@@ -139,10 +209,14 @@ def main(args):
         img.save(path, quality=95)
         conv.append({'id': f"{r['source']}_{i}", 'image': path,
                      'conversations': [{'from': 'human',
-                                        'value': '<image>\n<deepfake>\n' + (hint + ' ' if hint else '') + rng.choice(QUESTIONS)},
+                                        'value': '<image>\n<deepfake>\n' + (hint + ' ' if hint else '') +
+                                                 rng.choice(QUESTIONS if r['face'] else QUESTIONS[:2])},
                                        {'from': 'gpt', 'value': answer}]})
         k = f"{r['source']}/{'fake' if r['label'] else 'real'}{'/filtered' if applied else ''}{'/region_prompt' if hint else ''}"
         stats[k] = stats.get(k, 0) + 1
+        for flag, on in (('teacher_region', key(r) in teacher and not (r['source'] in ('casia', 'sd_inpaint') and stem in mmtd)),
+                         ('mentions_lighting', bool(LIGHTING.search(answer)))):
+            stats[flag] = stats.get(flag, 0) + on
     out = os.path.join(args.out_dir, 'forensic_conversations.json')
     json.dump(conv, open(out, 'w'), indent=1)
     print(f'{len(conv)} conversations -> {out}')
@@ -155,6 +229,9 @@ if __name__ == '__main__':
     ap.add_argument('--roots', nargs='+', required=True)
     ap.add_argument('--per-source', nargs='+', required=True, help='source=count (split evenly real / fake)')
     ap.add_argument('--mmtd', default=None)
+    ap.add_argument('--teacher', nargs='*', help='explain/teacher_annotate.py outputs (region names)')
+    ap.add_argument('--lighting-keep', type=float, default=1.0,
+                    help='share of MMTD / FakeClue texts that keep their lighting / shadow clauses')
     ap.add_argument('--split', default='train')
     ap.add_argument('--filter-p', type=float, default=0.25, help='share of face images that get filters')
     ap.add_argument('--region-prompt-p', type=float, default=0.0,
