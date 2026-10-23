@@ -210,3 +210,33 @@ plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
 v4 learns to localise diffusion face edits, but with fewer steps it is less calibrated (more real images flagged).
 Stages B / C use the v3 heads, since the LLM learns to rely on the detector's probabilities; v4 continues as a longer
 Stage-A run before it replaces them.
+
+## 7. Stage-A v5: high-res heatmap branch, DINOv2 ablation, type-balanced sampling
+
+`kaggle/stagea_v5.py`, two runs in one Kaggle session (T4 each), 672 px render for a high-res branch (SRM noise
+stem, log-FFT feature, 168x168 heatmap), fakes balanced over forgery types. GPU 0 also feeds frozen DINOv2-B
+features to the decoder; it ran ~3x slower (2.85 vs 0.95 s/step) and stopped at 8,757 steps (time cap), the
+no-DINOv2 run reached 20,000. Logs: `outputs/stagea_v5_dino/`, `outputs/stagea_v5_nodino/`.
+
+v5 without DINOv2 (20k steps) vs v3 (20k steps):
+
+| Test set | v3 | v5 |
+|---|---|---|
+| DiffusionFace inpainting edits: IoU / pointing | (not supervised) | **0.443 / 0.717** (v4: 0.227 / 0.565) |
+| DiffusionFace unseen generators, TPR clean / filtered | 0.937 / 0.790 | **0.970 / 0.977** |
+| DiffusionFace AUC filtered | 0.935 | **0.970** |
+| FPR on reals: SD_inpaint / DDVQA c40 / OpenForensics Test-Dev | 0.160 / 0.556 / 0.037 | **0.107 / 0.458 / 0.023** |
+| CASIA v2 IoU / pointing | 0.312 / 0.590 | **0.345 / 0.630** |
+| OpenForensics Test-Dev IoU | **0.914** | 0.899 |
+| OpenForensics Test-Challenge IoU / pointing | **0.753 / 0.977** | 0.579 / 0.827 |
+| SD_inpaint IoU / pointing | **0.406 / 0.803** | 0.284 / 0.660 |
+| DDVQA c40 AUC | **0.865** | 0.787 |
+
+DINOv2 at equal steps (8,000), with / without: SD_inpaint IoU 0.403 / 0.314 (pointing 0.797 / 0.627), CASIA
+0.293 / 0.246, DiffusionFace 0.348 / 0.346, OpenForensics Test-Challenge 0.553 / 0.586 (filtered 0.605 / 0.550),
+detection AUC about equal. DINOv2 helps localisation of scene edits but costs 3x the time.
+
+The regressions come from the sampling: balancing fakes over types let large sources dominate their type
+(OpenForensics fakes ~10% -> ~3%, SD_inpaint ~10% -> ~4%, DDVQA ~10% -> 0.2% of samples). Next (v6): 50/50 mix of
+per-source and per-(type, source) balancing (`--balance mix`: every source keeps >= 2.7% of samples, OpenForensics
+and DDVQA 6.7%, SD_inpaint 7.5%), with DINOv2 and a full 20k steps.

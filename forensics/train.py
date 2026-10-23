@@ -124,6 +124,41 @@ def evaluate(model, loader, dev, size=336):
     return res
 
 
+def sampling_weights(recs, balance):
+    """Half of the samples real, half fake. mix: average of the normalised 'source' and 'type_source' weights. source: each (source, label) equally often. type: reals balanced over
+    sources, fakes over forgery types (rare types such as diffusion face edits are no longer a few percent), but a
+    large source then crowds out the others of its type (v5). type_source: fakes equal per type and, within a type,
+    equal per source. Returns (per-record weights, group sizes)."""
+    if balance == 'mix':
+        ws, counts = sampling_weights(recs, 'source')
+        wt, _ = sampling_weights(recs, 'type_source')
+        ts, tt = sum(ws), sum(wt)
+        return [0.5 * a / ts + 0.5 * b / tt for a, b in zip(ws, wt)], counts
+
+    def group(r):
+        if balance == 'source':
+            return (r['source'], r['label'])
+        if r['label'] == 0:
+            return ('real', r['source'])
+        return ('fake', r['type']) if balance == 'type' else ('fake', r['type'], r['source'])
+    counts, per_type = defaultdict(int), defaultdict(set)
+    for r in recs:
+        counts[group(r)] += 1
+        if r['label'] == 1:
+            per_type[r['type']].add(group(r))
+    n_real = sum(1 for r_g in counts if (r_g[1] == 0 if balance == 'source' else r_g[0] == 'real'))
+    n_fake = sum(1 for r_g in counts if (r_g[1] == 1 if balance == 'source' else r_g[0] == 'fake'))
+
+    def weight(r):
+        g = group(r)
+        if r['label'] == 0:
+            return 1.0 / counts[g] / n_real
+        if balance == 'source':
+            return 1.0 / counts[g] / n_fake
+        return 1.0 / counts[g] / len(per_type) / len(per_type[r['type']])
+    return [weight(r) for r in recs], counts
+
+
 def main(args):
     torch.manual_seed(args.seed)
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -132,15 +167,7 @@ def main(args):
     val_recs = load_index(args.index, args.val_split, args.max_val_per_source, args.seed)
     print(f'train {len(train_recs)}  val {len(val_recs)}', flush=True)
 
-    # source: every (source, label) equally often; type: real images balanced over sources, fakes over forgery
-    # types, so rare types (e.g. diffusion face edits) are not a few percent of the samples
-    group = (lambda r: (r['source'], r['label'])) if args.balance == 'source' else \
-            (lambda r: ('real', r['source']) if r['label'] == 0 else ('fake', r['type']))
-    counts = defaultdict(int)
-    for r in train_recs:
-        counts[group(r)] += 1
-    n_groups = {lab: sum(1 for g in counts if (g[1] if args.balance == 'source' else g[0] == 'fake') == lab) for lab in (0, 1)}
-    weights = [1.0 / counts[group(r)] / n_groups[r['label']] for r in train_recs]
+    weights, counts = sampling_weights(train_recs, args.balance)
     print('sampling groups:', {str(k): v for k, v in sorted(counts.items(), key=str)}, flush=True)
     sampler = WeightedRandomSampler(weights, num_samples=args.steps * args.bs, replacement=True)
     train_dl = DataLoader(ForgeryDataset(train_recs, roots, train=True, filter_p=args.filter_p, hr_size=args.hr_size), batch_size=args.bs,
@@ -245,6 +272,6 @@ if __name__ == '__main__':
     ap.add_argument('--distill-sources', nargs='+', default=['ddvqa'], help='source prefixes it applies to')
     ap.add_argument('--hr-size', type=int, default=0, help='high-res heatmap branch input size (v5: 672), 0 = off')
     ap.add_argument('--no-dino', action='store_true', help='high-res branch without DINOv2 (ablation)')
-    ap.add_argument('--balance', default='source', choices=['source', 'type'])
+    ap.add_argument('--balance', default='source', choices=['source', 'type', 'type_source', 'mix'])
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())

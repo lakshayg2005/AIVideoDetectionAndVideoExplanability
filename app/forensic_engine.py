@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from PIL import Image
 
 from explain.face_parts import overlay, part_masks
-from forensics.data import CLIP_MEAN, CLIP_STD
+from forensics.data import CLIP_MEAN, CLIP_STD, IMNET_MEAN, IMNET_STD
 from forensics.filters import FILTERS
 from forensics.model import M2F2Seg
 
@@ -32,9 +32,12 @@ class ForensicEngine:
         from forensics.index import TYPES
         self.types = TYPES
         self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
-        self.model = M2F2Seg()
+        sd = torch.load(stagea_ckpt, map_location='cpu')['model']
+        # v5 checkpoints carry the high-res branch (refine.*); DINOv2 weights are frozen and not saved
+        self.hr_size = 672 if any(k.startswith('refine.') for k in sd) else 0
+        self.model = M2F2Seg(hires=self.hr_size > 0, use_dino='refine.dino_in.weight' in sd)
         self.model.load_m2f2(m2f2_shard)
-        self.model.load_state_dict(torch.load(stagea_ckpt, map_location='cpu')['model'], strict=False)
+        self.model.load_state_dict(sd, strict=False)
         self.model.to(self.device).eval()
         if self.device.type == 'cuda':
             self.model.clip.half()
@@ -44,8 +47,12 @@ class ForensicEngine:
         """img: PIL RGB (already face-cropped if wanted). Returns a dict with probabilities and maps."""
         x = np.asarray(img.convert('RGB').resize((size, size), Image.BICUBIC), np.float32) / 255
         pixel = torch.from_numpy(((x - CLIP_MEAN) / CLIP_STD).transpose(2, 0, 1)).unsqueeze(0).to(self.device)
+        pixel_hr = None
+        if self.hr_size:
+            h = np.asarray(img.convert('RGB').resize((self.hr_size,) * 2, Image.BICUBIC), np.float32) / 255
+            pixel_hr = torch.from_numpy(((h - IMNET_MEAN) / IMNET_STD).transpose(2, 0, 1)).unsqueeze(0).to(self.device)
         with torch.autocast('cuda', dtype=torch.float16, enabled=self.device.type == 'cuda'):
-            out = self.model(pixel)
+            out = self.model(pixel, pixel_hr)
         W, H = img.size
         up = lambda t: F.interpolate(t.float(), size=(H, W), mode='bilinear', align_corners=False)[0, 0].cpu().numpy()
         masks = torch.sigmoid(out['mask_logits'].float())
