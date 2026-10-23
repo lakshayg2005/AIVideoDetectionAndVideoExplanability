@@ -37,7 +37,8 @@ def _evidence(r, face, is_face, label=None):
     filters = [f for f, p in sorted(r['filters'].items(), key=lambda x: -x[1]) if p >= 0.5]
     lines, parts = [], []
     if label == 'fake':
-        lines.append(f"**Manipulation type:** {TYPE_NAMES.get(t, t)} ({r['types'][t]:.0%})")
+        conf = f"{r['types'][t]:.0%}" if r['types'][t] >= 0.3 else 'low confidence'
+        lines.append(f"**Manipulation type:** {TYPE_NAMES.get(t, t)} ({conf})")
         reg = region_text(r['forgery_map'])
         if reg and is_face:
             parts, fallback = FORENSIC.parts(face, r['forgery_map'] > 0.5)
