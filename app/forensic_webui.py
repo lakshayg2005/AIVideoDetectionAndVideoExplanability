@@ -76,11 +76,8 @@ def _verdict_md(label, p_fake, t, extra=''):
 
 
 def _text_verdict(text):
-    t = text.lower()
-    i_r, i_f = t.find('real'), t.find('fake')
-    if i_f < 0 and i_r < 0:
-        return None
-    return 'fake' if i_r < 0 or (0 <= i_f < i_r) else 'real'
+    from explain.eval_selfexplain import verdict
+    return verdict(text)
 
 
 def _self_explain(face, r):

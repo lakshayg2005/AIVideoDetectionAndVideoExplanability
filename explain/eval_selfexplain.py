@@ -46,8 +46,20 @@ def covered_parts(mask, img, thr=0.3):
     return sorted(p for p, m in parts.items() if m.any() and (mask & m).sum() / m.sum() > thr)
 
 
+MMTD_REAL = re.compile(r'(has|have) not been tampered|not (been )?tampered with|appears? not to have been tampered|'
+                       r'taken directly by (a|the) camera|no (signs|evidence) of tampering')
+MMTD_FAKE = re.compile(r'(has|have) been tampered|was tampered|is tampered')
+
+
 def verdict(text):
+    """First real / fake statement; MMTD-style answers ("The picture has (not) been tampered with ...") never
+    use those words, so their phrasing is checked first."""
     t = text.lower()
+    head = t[:300]
+    if MMTD_REAL.search(head):
+        return 'real'
+    if MMTD_FAKE.search(head):
+        return 'fake'
     i_r, i_f = t.find('real'), t.find('fake')
     if i_f < 0 and i_r < 0:
         return None
@@ -92,6 +104,7 @@ def main(args):
 def summarize(out_dir):
     rows = [json.loads(l) for l in open(os.path.join(out_dir, 'samples.jsonl'))]
     for x in rows:
+        x['verdict'] = verdict(x['text'])
         if 'mentioned' in x:
             x['mentioned'] = mentioned(x['text'])
     summary = {}

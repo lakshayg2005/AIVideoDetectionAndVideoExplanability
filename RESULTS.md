@@ -157,7 +157,8 @@ Detection and type recognition (AUC step 0 -> 20000; FPR = real images called fa
 Every model gets the same open question, *"Is this face real or fake? Explain why."*, with no label and no
 parts in the prompt. Test images: DDVQA c40 test (144), and 72 real + 72 fake validation images each from
 DiffusionFace (seen generators), CASIA v2 and SD_inpaint, plus 72 fakes from unseen generators (LDM, SD 2.1).
-Verdict = first "real"/"fake" in the answer. For faces, the parts the answer names (skin / cheeks / forehead /
+Verdict = first "real"/"fake" in the answer, or the MMTD phrasing ("has (not) been tampered with", "taken directly by the
+camera"), which Stage C uses for scene images. For faces, the parts the answer names (skin / cheeks / forehead /
 chin, eyes, eyebrows, nose, mouth; "face" alone does not count) are compared with the parts covered by the
 ground-truth mask (precision) and by the model's own predicted mask (consistency).
 
@@ -169,6 +170,7 @@ Verdict accuracy:
 | Self-explaining stage 3 from plain LLaVA (section 2 data) | 0.507 | 0.549 | 0.792 | 0.500 | 0.542 |
 | Forensic model, step 0 (release LLM + Stage-A v3 heads, function-preserving projector) | **0.889** | 0.597 | 0.056 | 0.597 | 0.521 |
 | Forensic model after Stage B (projector only, 150 steps x 32, LLM frozen) | 0.806 | 0.597 | 0.194 | **0.764** | **0.708** |
+| **Forensic model after Stage C** (QLoRA r=128, 1 epoch of the 13,378-conversation mix) | 0.785 | **0.757** | **0.611** | 0.722 | 0.590 |
 
 Named parts inside the ground-truth forged region (precision), DDVQA / DiffusionFace: released 0.753 / 0.770,
 plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
@@ -187,6 +189,11 @@ plain-LLaVA self-explaining 0.603 / 0.793, forensic step 0 0.603 / 0.857.
 - Stage B alone (only the evidence projector trains) already moves the frozen LLM towards the detector on scene edits
   (CASIA 0.597 -> 0.764, SD_inpaint 0.521 -> 0.708, unseen generators 0.056 -> 0.194) at some cost on DDVQA
   (0.889 -> 0.806); Stage C (LoRA on the LLM) continues from this projector.
+- Stage C (the LLM itself, 1 epoch) writes its own explanations (DDVQA style on faces, MMTD "tampered area / judgment
+  basis" style on scenes) and catches far more AI-generated faces than the released model (unseen generators 0.042 ->
+  0.611, DiffusionFace 0.576 -> 0.757), but its verdicts still trail the evidence it is given (the v3 heads alone reach
+  AUC 0.94-0.99 on these sets, 94% TPR on unseen generators) and it loses 0.08 on DDVQA. In the UI the forensic heads'
+  verdict is therefore shown next to the explainer's, with a warning when they disagree. Train loss 0.40, 12.3 h.
 
 ## 6. Stage-A v3 and v4
 
