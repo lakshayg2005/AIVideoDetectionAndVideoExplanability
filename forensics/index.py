@@ -150,9 +150,29 @@ def diffusionface(root, val_frac=0.15):
                     rec['edit'] = json.load(open(meta)).get('prompt')
                 yield rec
 
+def fakeclue(root, cats=('deepfake', 'human')):
+    """FakeClue (FakeVLM, NeurIPS 2025, Apache-2.0): images with natural-language artifact explanations, kept in
+    'text'. FakeClue labels are inverted (0 = fake). FF++ fakes include NeuralTextures (mouth only), so they get no
+    mask loss; AI-generated people (Chameleon, GenImage) are fully generated."""
+    for split in ('train', 'test'):
+        for e in json.load(open(os.path.join(root, 'data_json', f'{split}.json'))):
+            if e['cate'] not in cats:
+                continue
+            rel = f'{split}/{e["image"]}'
+            if not os.path.exists(os.path.join(root, rel)):
+                continue
+            label = 1 - int(e['label'])
+            ff = e['image'].startswith('ff++')
+            t = ('face_swap' if ff else 'generated') if label else 'real'
+            yield {'root': 'fakeclue', 'image': rel, 'label': label, 'type': TYPES.index(t), 'face': ff,
+                   'source': 'fakeclue_' + ('ffpp' if ff else 'human'), 'split': split if split == 'train' else 'test',
+                   'mask_kind': ('unknown' if ff else 'full') if label else 'none',
+                   'text': e['conversations'][1]['value'].strip().strip('"').strip()}
+
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('source', choices=['casia', 'sd_inpaint', 'ddvqa', 'openforensics', 'diffusionface'])
+    ap.add_argument('source', choices=['casia', 'sd_inpaint', 'ddvqa', 'openforensics', 'diffusionface', 'fakeclue'])
     ap.add_argument('--root', required=True)
     ap.add_argument('--out', required=True)
     ap.add_argument('--poly-json', default='Val_poly.json')
@@ -166,7 +186,8 @@ if __name__ == '__main__':
            'ddvqa': lambda: ddvqa(args.root, args.comp),
            'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac,
                                                   existing_only=args.existing_only, source_name=args.source_name),
-           'diffusionface': lambda: diffusionface(args.root)}[args.source]
+           'diffusionface': lambda: diffusionface(args.root),
+           'fakeclue': lambda: fakeclue(args.root)}[args.source]
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     n, stats = 0, {}
     with open(args.out, 'w') as f:

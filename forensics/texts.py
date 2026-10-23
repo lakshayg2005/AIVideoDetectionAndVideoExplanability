@@ -75,6 +75,21 @@ def grounded_text(r, mask, img, rng):
     return ' '.join(out)
 
 
+def region_hint(r, mask, img):
+    """Where the forged region is, phrased like the UI's heatmap hint (app/forensic_webui.py _grounding). Faces use
+    MediaPipe parts (only with landmarks), other images the position. None if there is no usable region."""
+    if r['label'] == 0 or r['mask_kind'] not in ('pixel', 'poly', 'weak') or not mask.any() or mask.mean() > 0.9:
+        return None
+    pct = 100 * mask.mean()
+    if r['face']:
+        from explain.face_parts import part_masks
+        parts, fallback = part_masks(img)
+        hit = [p for p, m in parts.items() if m.any() and (mask & m).sum() / m.sum() > 0.3]
+        if hit and not fallback:
+            return f"The forensic heatmap marks the {', '.join(hit)} ({pct:.0f}% of the face)."
+    return f'The forensic heatmap marks the {_position(mask)} of the image ({pct:.0f}% of it).'
+
+
 def mmtd_texts(path):
     out = {}
     for e in json.load(open(path)):
@@ -110,19 +125,23 @@ def main(args):
         filt_p = args.filter_p if r['face'] else 0.0
         img, forg, _, applied = ds.render(i, rng, filter_p=filt_p)
         stem = os.path.splitext(os.path.basename(r['image']))[0]
-        if r['source'] in ('casia', 'sd_inpaint'):
+        if r.get('text'):    # FakeClue
+            answer = r['text']
+        elif r['source'] in ('casia', 'sd_inpaint'):
             answer = mmtd[stem]
         else:
             answer = grounded_text(r, forg, img, rng)
+        hint = region_hint(r, forg, img) if rng.random() < args.region_prompt_p else None
         if applied:
             answer += filter_sentence(applied)
         path = os.path.join(img_dir, r['source'], f'{i:06d}_{stem}.jpg')
         os.makedirs(os.path.dirname(path), exist_ok=True)
         img.save(path, quality=95)
         conv.append({'id': f"{r['source']}_{i}", 'image': path,
-                     'conversations': [{'from': 'human', 'value': '<image>\n<deepfake>\n' + rng.choice(QUESTIONS)},
+                     'conversations': [{'from': 'human',
+                                        'value': '<image>\n<deepfake>\n' + (hint + ' ' if hint else '') + rng.choice(QUESTIONS)},
                                        {'from': 'gpt', 'value': answer}]})
-        k = f"{r['source']}/{'fake' if r['label'] else 'real'}{'/filtered' if applied else ''}"
+        k = f"{r['source']}/{'fake' if r['label'] else 'real'}{'/filtered' if applied else ''}{'/region_prompt' if hint else ''}"
         stats[k] = stats.get(k, 0) + 1
     out = os.path.join(args.out_dir, 'forensic_conversations.json')
     json.dump(conv, open(out, 'w'), indent=1)
@@ -138,6 +157,8 @@ if __name__ == '__main__':
     ap.add_argument('--mmtd', default=None)
     ap.add_argument('--split', default='train')
     ap.add_argument('--filter-p', type=float, default=0.25, help='share of face images that get filters')
+    ap.add_argument('--region-prompt-p', type=float, default=0.0,
+                    help='share of samples whose question states the true forged region (UI heatmap-hint format)')
     ap.add_argument('--out-dir', required=True)
     ap.add_argument('--seed', type=int, default=0)
     main(ap.parse_args())
