@@ -17,6 +17,8 @@ from app.engine import PARTS, aggregate, build_questions, crop_face, draw_box, s
 from app.forensic_engine import FILTER_NAMES, TYPE_NAMES, ForensicEngine, draw_heatmap, region_text, smart_crop
 
 FORENSIC, LLM = None, None
+SELF_EXPLAIN = False    # Stage-C forensic LLM: one open question, verdict and explanation from its own answer
+OPEN_QUESTION = 'Is this image real or fake? Explain why and point out any manipulated region.'
 
 
 def _join(xs):
@@ -73,6 +75,25 @@ def _verdict_md(label, p_fake, t, extra=''):
     return f"<h2 style='color:{color};margin:0'>{word}</h2>Fake probability: **{p_fake:.1%}** {extra}"
 
 
+def _text_verdict(text):
+    t = text.lower()
+    i_r, i_f = t.find('real'), t.find('fake')
+    if i_f < 0 and i_r < 0:
+        return None
+    return 'fake' if i_r < 0 or (0 <= i_f < i_r) else 'real'
+
+
+def _self_explain(face, r):
+    """Stage-C model: verdict + explanation in one answer; disagreement with the forensic heads is reported."""
+    text = LLM.ask(face, OPEN_QUESTION, max_new_tokens=220)
+    det_label = 'fake' if r['p_fake'] >= 0.5 else 'real'
+    label = _text_verdict(text) or det_label
+    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer: {label}"
+    if label != det_label:
+        note += '<br/>⚠️ _The explainer and the forensic heads disagree: treat this result as uncertain._'
+    return label, r['p_fake'], note, f'**Explanation:** {text}'
+
+
 def _verdicts(face, r, is_face, use_llm):
     """Final verdict: the language model's on faces when it runs (better calibrated on compressed FF++ faces),
     else the forensic model's; disagreement is reported."""
@@ -95,10 +116,15 @@ def analyze_image(image, use_crop, use_llm, progress=gr.Progress()):
     face, box, is_face = smart_crop(image, crop_face) if use_crop else (image, None, False)
     progress(0.2, desc='Forensic analysis')
     r = FORENSIC.analyze(face)
-    label, p_final, vnote = _verdicts(face, r, is_face, use_llm)
-    label, t, parts, ev = _evidence(r, face, is_face, label)
-    progress(0.5, desc='Writing the explanation')
-    expl = _explanation(face, label, parts, is_face) if use_llm else '_Explanation not requested._'
+    if SELF_EXPLAIN and use_llm and LLM is not None:
+        progress(0.5, desc='Writing the explanation')
+        label, p_final, vnote, expl = _self_explain(face, r)
+        label, t, parts, ev = _evidence(r, face, is_face, label)
+    else:
+        label, p_final, vnote = _verdicts(face, r, is_face, use_llm)
+        label, t, parts, ev = _evidence(r, face, is_face, label)
+        progress(0.5, desc='Writing the explanation')
+        expl = _explanation(face, label, parts, is_face) if use_llm else '_Explanation not requested._'
     note = vnote + ('' if (is_face or not use_crop) else '<br/>_No face detected — analysed the whole image._')
     types = {TYPE_NAMES[k]: v for k, v in sorted(r['types'].items(), key=lambda x: -x[1])[:3]}
     return (_verdict_md(label, p_final, t, note), types,
@@ -124,7 +150,10 @@ def analyze_video(video, n_frames, use_crop, use_llm, progress=gr.Progress()):
     label = 'fake' if p_video >= 0.5 else 'real'
     key_p, key_face, key_r, key_is_face = (max if label == 'fake' else min)(faces, key=lambda x: x[0])
     _, t, parts, ev = _evidence(key_r, key_face, key_is_face)
-    expl = _explanation(key_face, label, parts, key_is_face) if use_llm else '_Explanation not requested._'
+    if SELF_EXPLAIN and use_llm and LLM is not None:
+        expl = _self_explain(key_face, key_r)[3]
+    else:
+        expl = _explanation(key_face, label, parts, key_is_face) if use_llm else '_Explanation not requested._'
     n_fake = sum(x['fake probability'] >= 0.5 for x in rows)
     df = pd.DataFrame(rows)
     return (_verdict_md(label, p_video, t, f'<br/>{n_fake} of {len(rows)} sampled frames flagged fake.'),
@@ -181,19 +210,22 @@ def build_ui():
 
 
 def main():
-    global FORENSIC, LLM
+    global FORENSIC, LLM, SELF_EXPLAIN
     ap = argparse.ArgumentParser()
     ap.add_argument('--stagea', default='./runs/stagea_v3/last.pt')
     ap.add_argument('--m2f2-shard', default='./checkpoints/llava-v1.5-7b-M2F2-Det/model-00003-of-00003.safetensors')
     ap.add_argument('--model-path', default='./checkpoints/llava-v1.5-7b-M2F2-Det', help='LLM for the explanations')
     ap.add_argument('--model-base', default=None)
     ap.add_argument('--no-llm', action='store_true', help='heatmaps only (no GPU needed)')
+    ap.add_argument('--self-explain', action='store_true',
+                    help='LLM is the Stage-C forensic model: one open question instead of per-part questions')
     ap.add_argument('--device', default=None, help='forensic model device (default: cuda if free, else cpu)')
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=7861)
     ap.add_argument('--share', action='store_true')
     args = ap.parse_args()
     device = args.device or ('cpu' if args.no_llm else None)
+    SELF_EXPLAIN = args.self_explain
     print(f'Loading forensic model {args.stagea} ...')
     FORENSIC = ForensicEngine(args.stagea, args.m2f2_shard, device)
     if not args.no_llm:
