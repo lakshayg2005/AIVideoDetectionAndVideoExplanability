@@ -14,7 +14,8 @@ import gradio as gr
 import pandas as pd
 
 from app.engine import PARTS, aggregate, build_questions, crop_face, draw_box, sample_frames
-from app.forensic_engine import FILTER_NAMES, TYPE_NAMES, ForensicEngine, draw_heatmap, region_text, smart_crop
+from app.forensic_engine import (FILTER_NAMES, TYPE_NAMES, ForensicEngine, draw_heatmap, position_consistent,
+                                 region_text, smart_crop)
 
 FORENSIC, LLM = None, None
 SELF_EXPLAIN = False    # Stage-C forensic LLM: one open question, verdict and explanation from its own answer
@@ -42,6 +43,8 @@ def _evidence(r, face, is_face, label=None):
         reg = region_text(r['forgery_map'])
         if reg and is_face:
             parts, fallback = FORENSIC.parts(face, r['forgery_map'] > 0.5)
+            if fallback:    # no landmarks: do not name face parts from the fixed layout
+                parts = []
             where = _join(parts) if parts else f'the {reg[0]} of the face'
             lines.append(f"**Forged region (red outline):** {where}, {_pct(reg[1])} of the face crop"
                          + (' _(face landmarks not found, approximate parts)_' if fallback else ''))
@@ -82,20 +85,44 @@ def _text_verdict(text):
     return verdict(text)
 
 
-def _self_explain(face, r):
+def _grounding(r, is_face, label):
+    """Where the heatmap points, as a sentence for the prompt (None if there is no marked region)."""
+    reg = region_text(r['forgery_map'])
+    if label != 'fake' or not reg:
+        return None, None
+    if is_face:
+        parts, fallback = FORENSIC.parts(FORENSIC_LAST_FACE[0], r['forgery_map'] > 0.5)
+        if parts and not fallback:
+            return f"The forensic heatmap marks the {', '.join(parts)} ({reg[1]:.0f}% of the face).", reg[0]
+    return f"The forensic heatmap marks the {reg[0]} of the image ({reg[1]:.0f}% of it).", reg[0]
+
+
+FORENSIC_LAST_FACE = [None]
+
+
+def _self_explain(face, r, is_face=True):
     """Stage-C model. The verdict is the forensic heads' (more accurate than the explainer's own on every test set
     except compressed FF++, RESULTS.md section 5); the explainer answers the open question, and when it disagrees it
     is also asked to explain the heads' verdict."""
-    text = LLM.ask(face, OPEN_QUESTION, max_new_tokens=220)
+    FORENSIC_LAST_FACE[0] = face
     det_label = 'fake' if r['p_fake'] >= 0.5 else 'real'
+    hint, region = _grounding(r, is_face, det_label)
+    question = f'{hint} {OPEN_QUESTION}' if hint else OPEN_QUESTION    # explain where the heatmap points
+    text = LLM.ask(face, question, max_new_tokens=220)
     own = _text_verdict(text) or det_label
-    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer's own answer: {own}"
-    if own == det_label:
-        return det_label, r['p_fake'], note, f'**Explanation:** {text}'
-    note += '<br/>⚠️ _The explainer\'s own answer disagrees with the forensic heads: treat this result as uncertain._'
-    guided = LLM.ask(face, f'This image is {det_label}. Explain why and point out any manipulated region.', max_new_tokens=220)
-    return det_label, r['p_fake'], note, (f'**Explanation of the forensic verdict ({det_label}):** {guided}\n\n'
-                                           f'**Explainer\'s own answer:** {text}')
+    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer: {own}"
+    if own != det_label:
+        note += '<br/>⚠️ _The explainer disagrees with the forensic heads: treat this result as uncertain._'
+        guided = LLM.ask(face, f'This image is {det_label}. {hint or ""} Explain why and point out any manipulated region.',
+                         max_new_tokens=220)
+        text = f'**Explanation of the forensic verdict ({det_label}):** {guided}\n\n**Explainer\'s own answer:** {text}'
+        check_text = guided
+    else:
+        check_text, text = text, f'**Explanation:** {text}'
+    if position_consistent(check_text, region) is False:
+        text += (f'\n\n⚠️ _The text describes a different area than the heatmap ({region}); '
+                 'trust the heatmap for the location._')
+    return det_label, r['p_fake'], note, text
 
 
 def _verdicts(face, r, is_face, use_llm):
@@ -122,7 +149,7 @@ def analyze_image(image, use_crop, use_llm, progress=gr.Progress()):
     r = FORENSIC.analyze(face)
     if SELF_EXPLAIN and use_llm and LLM is not None:
         progress(0.5, desc='Writing the explanation')
-        label, p_final, vnote, expl = _self_explain(face, r)
+        label, p_final, vnote, expl = _self_explain(face, r, is_face)
         label, t, parts, ev = _evidence(r, face, is_face, label)
     else:
         label, p_final, vnote = _verdicts(face, r, is_face, use_llm)
@@ -133,7 +160,7 @@ def analyze_image(image, use_crop, use_llm, progress=gr.Progress()):
     types = {TYPE_NAMES[k]: v for k, v in sorted(r['types'].items(), key=lambda x: -x[1])[:3]}
     return (_verdict_md(label, p_final, t, note), types,
             draw_heatmap(face, r['forgery_map']), draw_heatmap(face, r['filter_map'], color=(40, 120, 255)),
-            draw_box(image, box, label, p_final) if box else image, ev, expl, f'{time.time() - t0:.1f}s')
+            draw_box(image, box, label, p_final) if box else None, ev, expl, f'{time.time() - t0:.1f}s')
 
 
 def analyze_video(video, n_frames, use_crop, use_llm, progress=gr.Progress()):
@@ -155,7 +182,7 @@ def analyze_video(video, n_frames, use_crop, use_llm, progress=gr.Progress()):
     key_p, key_face, key_r, key_is_face = (max if label == 'fake' else min)(faces, key=lambda x: x[0])
     _, t, parts, ev = _evidence(key_r, key_face, key_is_face)
     if SELF_EXPLAIN and use_llm and LLM is not None:
-        expl = _self_explain(key_face, key_r)[3]
+        expl = _self_explain(key_face, key_r, key_is_face)[3]
     else:
         expl = _explanation(key_face, label, parts, key_is_face) if use_llm else '_Explanation not requested._'
     n_fake = sum(x['fake probability'] >= 0.5 for x in rows)

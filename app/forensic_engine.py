@@ -93,11 +93,33 @@ def region_text(prob, thr=0.5):
 
 
 def smart_crop(img, crop_face, min_frac=0.5):
-    """Crop the largest face unless the image already is a tight face crop (face box >= min_frac of the
-    width), so inputs keep the framing seen in training. Returns (face, box, is_face)."""
+    """Crop the largest human face unless the image already is a tight face crop (face box >= min_frac of the
+    width), so inputs keep the framing seen in training. A face counts only if MediaPipe finds face landmarks:
+    the Haar detector also fires on animal faces and objects. Returns (face, box, is_face)."""
     face, box = crop_face(img)
-    if box is None:    # Haar misses small / blurry faces: accept the image as a face crop if MediaPipe finds one
+    if box is not None and part_masks(face)[1]:    # Haar box without human face landmarks (cat, train front, ...)
+        box = None
+    if box is None:    # Haar also misses small / blurry faces: accept the image as a face crop if MediaPipe finds one
         return img, None, not part_masks(img)[1]
     if (box[2] - box[0]) >= min_frac * img.size[0]:
         return img, None, True
     return face, box, True
+
+
+POSITION_WORDS = {'left': r'\bleft\b', 'right': r'\bright\b', 'upper': r'\b(upper|top)\b', 'lower': r'\b(lower|bottom)\b',
+                  'centre': r'\b(centre|center|central|middle)\b'}
+
+
+def positions_in_text(text):
+    import re
+    t = text.lower()
+    return {k for k, rx in POSITION_WORDS.items() if re.search(rx, t)}
+
+
+def position_consistent(text, region):
+    """False when the text names image positions and none of them matches the heatmap region ('lower right', ...);
+    None when the text names no position."""
+    said = positions_in_text(text)
+    if not said or region is None:
+        return None
+    return bool(said & set(region.split()))
