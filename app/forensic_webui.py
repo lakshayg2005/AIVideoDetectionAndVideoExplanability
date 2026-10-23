@@ -32,7 +32,8 @@ def _pct(x):
 def _evidence(r, face, is_face, label=None):
     """Deterministic, heatmap-grounded summary + the parts under the predicted forged region."""
     label = label or ('fake' if r['p_fake'] >= 0.5 else 'real')
-    t = max(r['types'], key=r['types'].get)
+    fake_types = {k: v for k, v in r['types'].items() if k != 'real'}
+    t = max(fake_types, key=fake_types.get) if label == 'fake' else max(r['types'], key=r['types'].get)    # name a forgery type for fakes
     filters = [f for f, p in sorted(r['filters'].items(), key=lambda x: -x[1]) if p >= 0.5]
     lines, parts = [], []
     if label == 'fake':
@@ -81,14 +82,19 @@ def _text_verdict(text):
 
 
 def _self_explain(face, r):
-    """Stage-C model: verdict + explanation in one answer; disagreement with the forensic heads is reported."""
+    """Stage-C model. The verdict is the forensic heads' (more accurate than the explainer's own on every test set
+    except compressed FF++, RESULTS.md section 5); the explainer answers the open question, and when it disagrees it
+    is also asked to explain the heads' verdict."""
     text = LLM.ask(face, OPEN_QUESTION, max_new_tokens=220)
     det_label = 'fake' if r['p_fake'] >= 0.5 else 'real'
-    label = _text_verdict(text) or det_label
-    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer: {label}"
-    if label != det_label:
-        note += '<br/>⚠️ _The explainer and the forensic heads disagree: treat this result as uncertain._'
-    return label, r['p_fake'], note, f'**Explanation:** {text}'
+    own = _text_verdict(text) or det_label
+    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer's own answer: {own}"
+    if own == det_label:
+        return det_label, r['p_fake'], note, f'**Explanation:** {text}'
+    note += '<br/>⚠️ _The explainer\'s own answer disagrees with the forensic heads: treat this result as uncertain._'
+    guided = LLM.ask(face, f'This image is {det_label}. Explain why and point out any manipulated region.', max_new_tokens=220)
+    return det_label, r['p_fake'], note, (f'**Explanation of the forensic verdict ({det_label}):** {guided}\n\n'
+                                           f'**Explainer\'s own answer:** {text}')
 
 
 def _verdicts(face, r, is_face, use_llm):
