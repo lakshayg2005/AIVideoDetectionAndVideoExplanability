@@ -243,7 +243,10 @@ def main(args):
             res = evaluate(model, val_dl, dev)
             print(json.dumps({'step': step, 'eval': res}), flush=True)
             log.write(json.dumps({'step': step, 'eval': res}) + '\n'); log.flush()
-            torch.save({'model': model.trainable_state_dict(), 'opt': opt.state_dict(), 'scaler': scaler.state_dict(), 'step': step}, ckpt)
+        if step % args.eval_every == 0 or step == args.steps or out_of_time or \
+                (args.save_every and step % args.save_every == 0):
+            torch.save({'model': model.trainable_state_dict(), 'opt': opt.state_dict(), 'scaler': scaler.state_dict(), 'step': step}, ckpt + '.tmp')
+            os.replace(ckpt + '.tmp', ckpt)  # a kill during the save keeps the previous checkpoint
         if out_of_time:
             print(f'time budget reached at step {step}', flush=True)
             break
@@ -265,6 +268,7 @@ if __name__ == '__main__':
     ap.add_argument('--max-val-per-source', type=int, default=300)
     ap.add_argument('--val-split', nargs='+', default=['val', 'test'])
     ap.add_argument('--eval-every', type=int, default=1000)
+    ap.add_argument('--save-every', type=int, default=0, help='also save last.pt every N steps (0: only at eval)')
     ap.add_argument('--eval-at-start', action='store_true')
     ap.add_argument('--log-every', type=int, default=50)
     ap.add_argument('--workers', type=int, default=4)
