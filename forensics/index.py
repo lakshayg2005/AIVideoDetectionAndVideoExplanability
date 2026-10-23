@@ -83,7 +83,7 @@ OF_SPLITS = {'Train': ('train', 'openforensics'), 'Val': ('val', 'openforensics'
              'Test-Dev': ('test', 'openforensics_testdev'), 'Test-Challenge': ('test', 'openforensics_challenge')}
 
 
-def openforensics(root, poly_json, split, min_side=48, val_frac=0.0, existing_only=False):
+def openforensics(root, poly_json, split, min_side=48, val_frac=0.0, existing_only=False, source_name='openforensics'):
     """OpenForensics (COCO polygons): one record per face, cropped by its box at load time.
     A compiled manifest with a per-image 'split' field (all four official splits) is mapped to
     train / val / test, with the two test sets reported as separate sources."""
@@ -100,7 +100,7 @@ def openforensics(root, poly_json, split, min_side=48, val_frac=0.0, existing_on
         seg = a['segmentation']
         seg = json.loads(seg) if isinstance(seg, str) else seg
         label = int(a['category_id'])
-        s, source = OF_SPLITS[im['split']] if 'split' in im else (_split(im['id'], val_frac) if val_frac else split, 'openforensics')
+        s, source = OF_SPLITS[im['split']] if 'split' in im else (_split(im['id'], val_frac) if val_frac else split, source_name)
         yield {'root': 'openforensics', 'image': im['file_name'], 'label': label,
                'type': TYPES.index('face_swap') if label else 0, 'face': True, 'source': source,
                'split': s, 'box': [x, y, w, h], 'mask_kind': 'poly' if label else 'none', 'poly': seg if label else None}
@@ -160,11 +160,12 @@ if __name__ == '__main__':
     ap.add_argument('--val-frac', type=float, default=0.0, help='openforensics: split one file by image')
     ap.add_argument('--comp', default='c40')
     ap.add_argument('--existing-only', action='store_true', help='openforensics: skip images not on disk')
+    ap.add_argument('--source-name', default='openforensics', help='openforensics (per-split manifests): source label')
     args = ap.parse_args()
     gen = {'casia': lambda: casia(args.root), 'sd_inpaint': lambda: sd_inpaint(args.root),
            'ddvqa': lambda: ddvqa(args.root, args.comp),
            'openforensics': lambda: openforensics(args.root, args.poly_json, args.split, val_frac=args.val_frac,
-                                                  existing_only=args.existing_only),
+                                                  existing_only=args.existing_only, source_name=args.source_name),
            'diffusionface': lambda: diffusionface(args.root)}[args.source]
     os.makedirs(os.path.dirname(args.out) or '.', exist_ok=True)
     n, stats = 0, {}
