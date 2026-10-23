@@ -91,6 +91,8 @@ def evaluate(model, loader, dev, size=336):
             g = acc[b['source'][i] + ('/filtered' if b['filtered'][i] > 0 else '')]
             g['y'].append(int(b['label'][i])); g['p'].append(p_fake[i].item())
             g['type_ok'].append(int(out['type_logits'][i].argmax() == b['type'][i]))
+            if b['filtered'][i] == 0:    # false filter alarms on unedited images
+                g['filter_false_alarm'].append(float((out['filter_logits'][i] > 0).any()))
             if b['filtered'][i] > 0:
                 pf = (out['filter_logits'][i] > 0).float(); tf = b['filters'][i]
                 g['filt_tp'].append((pf * tf).sum().item()); g['filt_p'].append(pf.sum().item()); g['filt_t'].append(tf.sum().item())
@@ -113,7 +115,7 @@ def evaluate(model, loader, dev, size=336):
              'fpr': float(np.mean(p[y == 0] > 0.5)) if (y == 0).any() else float('nan'),
              'tpr': float(np.mean(p[y == 1] > 0.5)) if (y == 1).any() else float('nan'),
              'type_acc': float(np.mean(g['type_ok']))}
-        for k in ('iou', 'f1', 'point', 'point_paper', 'fp_area', 'proc_iou'):
+        for k in ('iou', 'f1', 'point', 'point_paper', 'fp_area', 'proc_iou', 'filter_false_alarm'):
             if g[k]:
                 r[k] = float(np.mean(g[k]))
         if g['filt_t']:
