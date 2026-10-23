@@ -74,10 +74,45 @@ def _explanation(face, label, parts, is_face=True):
     return '\n\n'.join(f'**{title}:** {LLM.ask(face, q)}' for title, q in qs)
 
 
-def _verdict_md(label, p_fake, t, extra=''):
-    color = '#dc322f' if label == 'fake' else '#28a745'
-    word = f'LIKELY FAKE — {TYPE_NAMES.get(t, t)}' if label == 'fake' else 'LIKELY REAL'
+def _verdict_md(label, p_fake, t, extra='', uncertain=False):
+    if uncertain:
+        color, word = '#d08700', f"UNCERTAIN — leaning {label}" + (f' ({TYPE_NAMES.get(t, t)})' if label == 'fake' else '')
+    else:
+        color = '#dc322f' if label == 'fake' else '#28a745'
+        word = f'LIKELY FAKE — {TYPE_NAMES.get(t, t)}' if label == 'fake' else 'LIKELY REAL'
     return f"<h2 style='color:{color};margin:0'>{word}</h2>Fake probability: **{p_fake:.1%}** {extra}"
+
+
+def _signals(r, explainer_label=None):
+    """Agreement of the detector, the type head and (if run) the explainer. Uncertain unless all agree."""
+    det = 'fake' if r['p_fake'] >= 0.5 else 'real'
+    typ = 'real' if r['types']['real'] >= 0.5 else 'fake'
+    votes = [('detector', det), ('type head', typ)] + ([('explainer', explainer_label)] if explainer_label else [])
+    agree = all(v == det for _, v in votes)
+    txt = ' · '.join(f'{n}: {v}' for n, v in votes)
+    return det, not agree, f'<br/>Signals — {txt}' + ('' if agree else '<br/>⚠️ _The signals disagree: treat this result as uncertain._')
+
+
+AREA = __import__('re').compile(r'(\d+(?:\.\d+)?)\s*%')
+LIGHTING = __import__('re').compile(r'\b(lighting|light|shadows?|illuminat\w*)\b', __import__('re').I)
+
+
+def _text_checks(text, r, region):
+    """Warnings where the text claims more than the heatmap shows."""
+    warn = []
+    reg = region_text(r['forgery_map'])
+    said = position_consistent(text, region)
+    if reg is None and (AREA.search(text) or said is not None):
+        warn.append('the text names a location / size, but the heatmap does not localise a clear region')
+    elif said is False:
+        warn.append(f'the text describes a different area than the heatmap ({region}); trust the heatmap for the location')
+    if reg is not None:
+        nums = [float(x) for x in AREA.findall(text)]
+        if nums and all(not (0.5 * reg[1] <= n <= 2 * reg[1] + 1) for n in nums):
+            warn.append(f'the size stated in the text does not match the heatmap ({reg[1]:.0f}%)')
+    if LIGHTING.search(text):
+        warn.append('lighting / shadow statements are the model\'s description, not a measurement')
+    return ''.join(f'\n\n⚠️ _{w}._' for w in warn)
 
 
 def _text_verdict(text):
@@ -88,8 +123,11 @@ def _text_verdict(text):
 def _grounding(r, is_face, label):
     """Where the heatmap points, as a sentence for the prompt (None if there is no marked region)."""
     reg = region_text(r['forgery_map'])
-    if label != 'fake' or not reg:
+    if label != 'fake':
         return None, None
+    if not reg:
+        return ('The forensic heatmap does not localise a clear manipulated region; '
+                'do not guess a location if the evidence is not localised.'), None
     if is_face:
         parts, fallback = FORENSIC.parts(FORENSIC_LAST_FACE[0], r['forgery_map'] > 0.5)
         if parts and not fallback:
@@ -110,19 +148,16 @@ def _self_explain(face, r, is_face=True):
     question = f'{hint} {OPEN_QUESTION}' if hint else OPEN_QUESTION    # explain where the heatmap points
     text = LLM.ask(face, question, max_new_tokens=220)
     own = _text_verdict(text) or det_label
-    note = f"<br/>Forensic heads: {det_label} ({r['p_fake']:.0%} fake) · explainer: {own}"
+    _, uncertain, note = _signals(r, own)
     if own != det_label:
-        note += '<br/>⚠️ _The explainer disagrees with the forensic heads: treat this result as uncertain._'
         guided = LLM.ask(face, f'This image is {det_label}. {hint or ""} Explain why and point out any manipulated region.',
                          max_new_tokens=220)
         text = f'**Explanation of the forensic verdict ({det_label}):** {guided}\n\n**Explainer\'s own answer:** {text}'
         check_text = guided
     else:
         check_text, text = text, f'**Explanation:** {text}'
-    if position_consistent(check_text, region) is False:
-        text += (f'\n\n⚠️ _The text describes a different area than the heatmap ({region}); '
-                 'trust the heatmap for the location._')
-    return det_label, r['p_fake'], note, text
+    text += _text_checks(check_text, r, region)
+    return det_label, r['p_fake'], note, text, uncertain
 
 
 def _verdicts(face, r, is_face, use_llm):
@@ -149,16 +184,17 @@ def analyze_image(image, use_crop, use_llm, progress=gr.Progress()):
     r = FORENSIC.analyze(face)
     if SELF_EXPLAIN and use_llm and LLM is not None:
         progress(0.5, desc='Writing the explanation')
-        label, p_final, vnote, expl = _self_explain(face, r, is_face)
+        label, p_final, vnote, expl, uncertain = _self_explain(face, r, is_face)
         label, t, parts, ev = _evidence(r, face, is_face, label)
     else:
         label, p_final, vnote = _verdicts(face, r, is_face, use_llm)
+        uncertain = _signals(r)[1] or 'disagree' in vnote
         label, t, parts, ev = _evidence(r, face, is_face, label)
         progress(0.5, desc='Writing the explanation')
         expl = _explanation(face, label, parts, is_face) if use_llm else '_Explanation not requested._'
     note = vnote + ('' if (is_face or not use_crop) else '<br/>_No face detected — analysed the whole image._')
     types = {TYPE_NAMES[k]: v for k, v in sorted(r['types'].items(), key=lambda x: -x[1])[:3]}
-    return (_verdict_md(label, p_final, t, note), types,
+    return (_verdict_md(label, p_final, t, note, uncertain), types,
             draw_heatmap(face, r['forgery_map']), draw_heatmap(face, r['filter_map'], color=(40, 120, 255)),
             draw_box(image, box, label, p_final) if box else None, ev, expl, f'{time.time() - t0:.1f}s')
 
