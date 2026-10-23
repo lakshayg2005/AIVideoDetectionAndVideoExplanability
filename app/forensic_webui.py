@@ -84,13 +84,20 @@ def _verdict_md(label, p_fake, t, extra='', uncertain=False):
 
 
 def _signals(r, explainer_label=None):
-    """Agreement of the detector, the type head and (if run) the explainer. Uncertain unless all agree."""
+    """Uncertain when the two forensic outputs (real/fake detector, type head) disagree or the detector is unsure
+    (35-65%). The explainer is the least reliable signal (verdict accuracy 0.57-0.79 vs detector AUC 0.87-0.99,
+    RESULTS.md section 5), so its disagreement is reported but does not override two agreeing forensic outputs."""
     det = 'fake' if r['p_fake'] >= 0.5 else 'real'
     typ = 'real' if r['types']['real'] >= 0.5 else 'fake'
-    votes = [('detector', det), ('type head', typ)] + ([('explainer', explainer_label)] if explainer_label else [])
-    agree = all(v == det for _, v in votes)
-    txt = ' · '.join(f'{n}: {v}' for n, v in votes)
-    return det, not agree, f'<br/>Signals — {txt}' + ('' if agree else '<br/>⚠️ _The signals disagree: treat this result as uncertain._')
+    uncertain = typ != det or 0.35 <= r['p_fake'] <= 0.65
+    txt = f"detector: {det} ({r['p_fake']:.0%}) · type head: {typ}" + (f' · explainer: {explainer_label}' if explainer_label else '')
+    note = f'<br/>Signals — {txt}'
+    if uncertain:
+        note += '<br/>⚠️ _The forensic outputs disagree or are unsure: treat this result as uncertain._'
+    elif explainer_label and explainer_label != det:
+        note += ("<br/>ℹ️ _The explainer's own first answer differs; it is the least reliable signal, "
+                 "so the verdict follows the forensic outputs._")
+    return det, uncertain, note
 
 
 AREA = __import__('re').compile(r'(\d+(?:\.\d+)?)\s*%')
