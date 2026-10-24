@@ -132,6 +132,19 @@ def grounded_text(r, mask, img, rng, region_name=None):
     return ' '.join(out)
 
 
+def mmtd_with_region(text, region_name, mask):
+    """MMTD answer whose first section ("Description of the tampered area") is replaced by the teacher's name for
+    the region and its position / size from the ground-truth mask; the judgment basis is kept. None if the text
+    does not have MMTD's two numbered sections."""
+    lines = text.split('\n')
+    head = HEADER.match(lines[0])
+    if not head or not lines[0].lstrip().startswith('1.') or not any(l.lstrip().startswith('2.') for l in lines[1:]):
+        return None
+    lines[0] = (head.group(0) + f'The picture has been tampered with. The tampered area is the {_noun(region_name)}, in '
+                f'the {_position(mask)} of the image, covering about {100 * mask.mean():.0f}% of it.')
+    return '\n'.join(lines)
+
+
 def region_hint(r, mask, img):
     """Where the forged region is, phrased like the UI's heatmap hint (app/forensic_webui.py _grounding). Faces use
     MediaPipe parts (only with landmarks), other images the position. None if there is no usable region."""
@@ -199,6 +212,8 @@ def main(args):
             answer = thin_lighting(r['text'], rng, args.lighting_keep)
         elif r['source'] in ('casia', 'sd_inpaint') and stem in mmtd:
             answer = thin_lighting(mmtd[stem], rng, args.lighting_keep)
+            if r['label'] and key(r) in teacher and forg.any() and rng.random() < args.teacher_replace_p:
+                answer = mmtd_with_region(answer, teacher[key(r)], forg) or answer
         else:
             answer = grounded_text(r, forg, img, rng, teacher.get(key(r)))
         hint = region_hint(r, forg, img) if rng.random() < args.region_prompt_p and not r.get('text') else None
@@ -214,7 +229,7 @@ def main(args):
                                        {'from': 'gpt', 'value': answer}]})
         k = f"{r['source']}/{'fake' if r['label'] else 'real'}{'/filtered' if applied else ''}{'/region_prompt' if hint else ''}"
         stats[k] = stats.get(k, 0) + 1
-        for flag, on in (('teacher_region', key(r) in teacher and not (r['source'] in ('casia', 'sd_inpaint') and stem in mmtd)),
+        for flag, on in (('teacher_region', ('tampered area is the' in answer) or ('edited area shows' in answer)),
                          ('mentions_lighting', bool(LIGHTING.search(answer)))):
             stats[flag] = stats.get(flag, 0) + on
     out = os.path.join(args.out_dir, 'forensic_conversations.json')
@@ -230,6 +245,8 @@ if __name__ == '__main__':
     ap.add_argument('--per-source', nargs='+', required=True, help='source=count (split evenly real / fake)')
     ap.add_argument('--mmtd', default=None)
     ap.add_argument('--teacher', nargs='*', help='explain/teacher_annotate.py outputs (region names)')
+    ap.add_argument('--teacher-replace-p', type=float, default=0.5,
+                    help='share of MMTD texts (with a teacher name) whose tampered-area section is replaced by it')
     ap.add_argument('--lighting-keep', type=float, default=1.0,
                     help='share of MMTD / FakeClue texts that keep their lighting / shadow clauses')
     ap.add_argument('--split', default='train')

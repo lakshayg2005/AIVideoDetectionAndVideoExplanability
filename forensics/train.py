@@ -178,7 +178,8 @@ def main(args):
     val_ds = torch.utils.data.ConcatDataset([
         ForgeryDataset(val_recs, roots, train=False, filter_p=0.0, seed=1, hr_size=args.hr_size),
         ForgeryDataset([r for r in val_recs if r['face']], roots, train=False, filter_p=1.0, seed=2, hr_size=args.hr_size)])
-    val_dl = DataLoader(val_ds, batch_size=args.bs, num_workers=args.workers, collate_fn=collate)
+    val_workers = args.workers if args.val_workers is None else args.val_workers    # these start next to the train workers
+    val_dl = DataLoader(val_ds, batch_size=args.bs, num_workers=val_workers, collate_fn=collate)
 
     model = M2F2Seg(hires=args.hr_size > 0, use_dino=not args.no_dino)
     print('loaded from M2F2 checkpoint (vision, detector tensors):', model.load_m2f2(args.m2f2_shard), flush=True)
@@ -272,6 +273,7 @@ if __name__ == '__main__':
     ap.add_argument('--eval-at-start', action='store_true')
     ap.add_argument('--log-every', type=int, default=50)
     ap.add_argument('--workers', type=int, default=4)
+    ap.add_argument('--val-workers', type=int, default=None, help='default: --workers')
     ap.add_argument('--ablate', default='', help='comma list of loss terms to switch off, e.g. forg,aux')
     ap.add_argument('--max-minutes', type=float, default=0, help='stop (after eval + save) when exceeded')
     ap.add_argument('--distill', type=float, default=0.0, help='weight of distillation from the released detector')
