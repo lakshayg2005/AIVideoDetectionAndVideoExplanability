@@ -10,6 +10,8 @@ import json
 import os
 import random
 
+from forensics.texts import make_hint, with_type
+
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--forensic', required=True)
@@ -18,6 +20,7 @@ if __name__ == '__main__':
     ap.add_argument('--ddvqa-self', type=int, default=2878, help='open-question samples (no label / parts in prompt)')
     ap.add_argument('--ddvqa-original', type=int, default=1500, help='original part-specific conversations')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--hint-p', type=float, default=0.0, help='share of DDVQA open-question fakes given the v3 type hint')
     ap.add_argument('--seed', type=int, default=0)
     args = ap.parse_args()
     rng = random.Random(args.seed)
@@ -27,9 +30,16 @@ if __name__ == '__main__':
     orig = [x for x in dd if not x['id'].startswith('selfexp_')]
     pick = rng.sample(self_exp, min(len(self_exp), args.ddvqa_self)) + rng.sample(orig, min(len(orig), args.ddvqa_original))
     root = os.path.abspath(args.ddvqa_images)
+    hinted = 0
     for x in pick:
         x['image'] = os.path.join(root, x['image'])
+        q, a = x['conversations'][0], x['conversations'][1]
+        if x['id'].startswith('selfexp_') and a['value'].startswith('This image is fake') and rng.random() < args.hint_p:
+            # as the v3 forensic texts: the type hint the UI gives for fakes, and the answer names the type
+            q['value'] = q['value'].replace('<deepfake>\n', '<deepfake>\n' + make_hint('face_swap') + ' ', 1)
+            a['value'] = with_type(a['value'], 'face_swap')
+            hinted += 1
     mix = forensic + pick
     rng.shuffle(mix)
     json.dump(mix, open(args.out, 'w'))
-    print(f'{len(forensic)} forensic + {len(pick)} DDVQA = {len(mix)} -> {args.out}')
+    print(f'{len(forensic)} forensic + {len(pick)} DDVQA ({hinted} with a type hint) = {len(mix)} -> {args.out}')

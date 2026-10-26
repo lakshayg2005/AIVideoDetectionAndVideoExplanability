@@ -14,6 +14,7 @@ import gradio as gr
 import pandas as pd
 
 from app.engine import PARTS, aggregate, build_questions, crop_face, draw_box, sample_frames
+from forensics.texts import NO_REGION_HINT, _position, make_hint
 from app.forensic_engine import (FILTER_NAMES, TYPE_NAMES, ForensicEngine, draw_heatmap, position_consistent,
                                  region_text, smart_crop)
 
@@ -132,9 +133,23 @@ def _grounding(r, is_face, label):
     reg = region_text(r['forgery_map'])
     if label != 'fake':
         return None, None
+    # As in the Stage-C training texts (forensics/texts.py region_hint), the no-region hint goes only with whole-face
+    # generation / re-rendering; elsewhere the explainer turned it into "the entire face is synthetic", even on scenes.
+    fake_types = {k: v for k, v in r['types'].items() if k != 'real'}
+    t = max(fake_types, key=fake_types.get)
+    if HINT_STYLE == 'v3':    # Stage C v3: the type head's verdict and the region, as in its training texts
+        m = r['forgery_map'] > 0.5
+        if t in ('img2img', 'generated') or not reg:
+            return make_hint(t), None
+        if is_face:
+            parts, fallback = FORENSIC.parts(FORENSIC_LAST_FACE[0], m)
+            if parts and not fallback:
+                return make_hint(t, parts=parts, pct=100 * m.mean()), reg[0]
+        return make_hint(t, position=_position(m), pct=100 * m.mean()), reg[0]
+    if is_face and t in ('img2img', 'generated'):
+        return NO_REGION_HINT, None
     if not reg:
-        return ('The forensic heatmap does not localise a clear manipulated region; '
-                'do not guess a location if the evidence is not localised.'), None
+        return None, None
     if is_face:
         parts, fallback = FORENSIC.parts(FORENSIC_LAST_FACE[0], r['forgery_map'] > 0.5)
         if parts and not fallback:
@@ -143,6 +158,7 @@ def _grounding(r, is_face, label):
 
 
 FORENSIC_LAST_FACE = [None]
+HINT_STYLE = 'v2'
 
 
 def _self_explain(face, r, is_face=True):
@@ -284,7 +300,7 @@ def build_ui():
 
 
 def main():
-    global FORENSIC, LLM, SELF_EXPLAIN
+    global FORENSIC, LLM, SELF_EXPLAIN, HINT_STYLE
     ap = argparse.ArgumentParser()
     ap.add_argument('--stagea', default='./runs/stagea_v3/last.pt')
     ap.add_argument('--m2f2-shard', default='./checkpoints/llava-v1.5-7b-M2F2-Det/model-00003-of-00003.safetensors')
@@ -293,6 +309,8 @@ def main():
     ap.add_argument('--no-llm', action='store_true', help='heatmaps only (no GPU needed)')
     ap.add_argument('--self-explain', action='store_true',
                     help='LLM is the Stage-C forensic model: one open question instead of per-part questions')
+    ap.add_argument('--hint-style', choices=['v2', 'v3'], default='v2',
+                    help='prompt hint of the Stage-C explainer: v3 (Stage C v3) also names the type head\'s verdict')
     ap.add_argument('--device', default=None, help='forensic model device (default: cuda if free, else cpu)')
     ap.add_argument('--host', default='127.0.0.1')
     ap.add_argument('--port', type=int, default=7861)
@@ -300,6 +318,7 @@ def main():
     args = ap.parse_args()
     device = args.device or ('cpu' if args.no_llm else None)
     SELF_EXPLAIN = args.self_explain
+    HINT_STYLE = args.hint_style
     print(f'Loading forensic model {args.stagea} ...')
     FORENSIC = ForensicEngine(args.stagea, args.m2f2_shard, device)
     if not args.no_llm:
