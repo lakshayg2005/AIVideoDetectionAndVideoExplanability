@@ -99,7 +99,7 @@ Verdict accuracy (DDVQA / DiffusionFace / unseen generators / CASIA / SD_inpaint
 | Released M2F2-Det (no hint) | 0.87 | 0.58 | 0.04 | 0.52 | 0.49 |
 | **Stage C v1** (earlier UI) | **0.81** | 0.87 | 0.69 | 0.81 | **0.70** |
 | **Stage C v2** (UI rule) | 0.72 | **0.97** | **0.97** | **0.89** | 0.69 |
-| Stage C v3 | evaluation running; numbers added after it finishes |
+| **Stage C v3** (newest) | 0.70 | **0.98** | 0.96 | 0.88 | **0.84** |
 
 Other measures (CASIA / SD_inpaint):
 
@@ -108,6 +108,7 @@ Other measures (CASIA / SD_inpaint):
 | Released | 7% / 1% | 0.40 / 0.25 |
 | v1 | **95% / 97%** | 0.57 / 0.76 |
 | v2 | **8% / 0%** | 0.57 / 0.75 |
+| v3 | 10% / 4% | **0.78 / 0.80** |
 
 Answer correctly names the edit type (fakes): v1 0.60 / 0.47 / 0.68 / 0.51 / 0.00; v2 0.78 / 0.61 / 0.94 / 0.08 / 0.90
 (same column order). v2's weak spot: CASIA splices are called "inpainting". v3 is trained to fix this.
