@@ -173,6 +173,23 @@ Other measures (CASIA / SD_inpaint):
 Answer correctly names the edit type (fakes): v1 0.60 / 0.47 / 0.68 / 0.51 / 0.00; v2 0.78 / 0.61 / 0.94 / 0.08 / 0.90
 (same column order). v2's weak spot: CASIA splices are called "inpainting". v3 is trained to fix this.
 
+### UI test on fresh images (Stage C v3, run through the live UI, 28-29 Oct)
+
+Column meanings: verdict correct; "uncertain" = the UI showed its uncertainty banner; type correct = top manipulation
+type is the expected one; names type = the written explanation names that edit type; lighting = mentions light/shadow.
+Full tables: `outputs/ui_eval/demo_images.md` (16 images already used while building the UI, so optimistic) and
+`outputs/ui_eval/test_images.md` (52 never-trained images from `scripts/make_test_images.py`, 4 per category).
+
+| 52 held-out images | Verdict correct |
+|---|---|
+| fakes (36) | 75% |
+| reals (16) | 62% |
+| overall | 71% |
+
+Strong (4 of 4): diffusion face edits, diffusion face swaps, LDM unseen generator, FF++ face swaps, SD-inpaint reals.
+Weak: AI-generated people 0% (called real, heads were not trained on them), OpenForensics reals 25% (called fake),
+CASIA reals 50%, OpenForensics GAN edits 50%. n = 4 per category, so each category is a rough indication only.
+
 ## 7. Known limitations (say these first)
 
 - Compressed FF++ **real** faces: the heads call 56% fake, and the explainer follows them (DDVQA accuracy 0.72).
