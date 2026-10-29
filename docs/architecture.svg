@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1120" width="1400" height="1120" font-family="Helvetica, Arial, sans-serif">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f8fafc"/><stop offset="1" stop-color="#eef2f7"/></linearGradient>
+<linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient>
+<linearGradient id="new" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fb923c"/><stop offset="1" stop-color="#ea580c"/></linearGradient>
+<linearGradient id="newg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#059669"/></linearGradient>
+<linearGradient id="grey" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#475569"/></linearGradient>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="120%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.18"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker>
+<style>
+.t{fill:#fff;font-weight:700;font-size:20px;text-anchor:middle}
+.s{fill:#fff;font-size:14px;text-anchor:middle;opacity:.95}
+.h{fill:#0f172a;font-weight:700;font-size:15px}
+.l{fill:#334155;font-size:14px}
+.ln{stroke:#334155;stroke-width:2.5;fill:none;marker-end:url(#ar)}
+.tag{font-size:12px;font-weight:700;fill:#fff;text-anchor:middle}
+</style>
+</defs>
+<rect width="1400" height="1120" fill="url(#bg)"/>
+<text x="700" y="48" text-anchor="middle" font-size="30" font-weight="800" fill="#0f172a">Explainable forgery detection: M2F2-Det (paper) + our additions</text>
+<text x="700" y="76" text-anchor="middle" font-size="15" fill="#475569">Blue = already in the paper's released code. Orange / green = added by us.</text>
+
+<!-- legend -->
+<rect x="470" y="92" width="22" height="22" rx="5" fill="url(#paper)"/><text x="500" y="109" class="l">In the paper</text>
+<rect x="620" y="92" width="22" height="22" rx="5" fill="url(#new)"/><text x="650" y="109" class="l">Added: heads / model</text>
+<rect x="810" y="92" width="22" height="22" rx="5" fill="url(#newg)"/><text x="840" y="109" class="l">Added: training / data / UI</text>
+
+<!-- input -->
+<g filter="url(#sh)"><rect x="590" y="135" width="220" height="56" rx="14" fill="url(#grey)"/></g>
+<text x="700" y="170" class="t">Input image</text>
+<path class="ln" d="M700 191V225"/>
+
+<!-- CLIP -->
+<g filter="url(#sh)"><rect x="470" y="228" width="460" height="72" rx="14" fill="url(#paper)"/></g>
+<text x="700" y="260" class="t">CLIP ViT-L/14-336</text>
+<text x="700" y="284" class="s">vision encoder, fine-tuned by the authors (layer -2 patch features)</text>
+<rect x="842" y="214" width="76" height="22" rx="11" fill="#1e3a8a"/><text x="880" y="230" class="tag">PAPER</text>
+
+<!-- arrows to branches -->
+<path class="ln" d="M520 300V345H240V372"/>
+<path class="ln" d="M700 300V372"/>
+<path class="ln" d="M880 300V345H1160V372"/>
+<text x="360" y="338" class="l" font-size="12">layers 8 / 16 / -2</text>
+<text x="1000" y="338" class="l" font-size="12">image resized to 672 px</text>
+
+<!-- left: mask decoder -->
+<g filter="url(#sh)"><rect x="60" y="376" width="360" height="200" rx="16" fill="url(#new)"/></g>
+<rect x="320" y="362" width="76" height="22" rx="11" fill="#9a3412"/><text x="358" y="378" class="tag">NEW</text>
+<text x="240" y="412" class="t">Forensic heads</text>
+<text x="240" y="446" class="s">FPN mask decoder</text>
+<text x="240" y="466" class="s">forged-region mask + filter mask</text>
+<text x="240" y="496" class="s">Type head: real, face swap, splice,</text>
+<text x="240" y="516" class="s">diffusion local, img2img, generated</text>
+<text x="240" y="546" class="s">Filter head: beauty, blur, JPEG,</text>
+<text x="240" y="564" class="s">colour, sharpen, resize</text>
+
+<!-- middle: paper detector -->
+<g filter="url(#sh)"><rect x="480" y="376" width="440" height="200" rx="16" fill="url(#paper)"/></g>
+<rect x="832" y="362" width="76" height="22" rx="11" fill="#1e3a8a"/><text x="870" y="378" class="tag">PAPER</text>
+<text x="700" y="412" class="t">M2F2 detector</text>
+<text x="700" y="446" class="s">forgery-prompt text branch (learned prompts)</text>
+<text x="700" y="466" class="s">24x24 patch score map</text>
+<text x="700" y="496" class="s">+ DenseNet-121 + linear layer</text>
+<text x="700" y="536" class="t" font-size="17">real / fake logits (2-d)</text>
+<text x="700" y="560" class="s">kept frozen as the teacher for our distillation</text>
+
+<!-- right: hi-res -->
+<g filter="url(#sh)"><rect x="980" y="376" width="360" height="200" rx="16" fill="url(#new)"/></g>
+<rect x="1240" y="362" width="76" height="22" rx="11" fill="#9a3412" /><text x="1278" y="378" class="tag">NEW</text>
+<text x="1160" y="412" class="t">High-res branch (v5 / v6)</text>
+<text x="1160" y="446" class="s">SRM noise stem + log-FFT</text>
+<text x="1160" y="466" class="s">frozen DINOv2-B features</text>
+<text x="1160" y="496" class="s">refine to a 168 x 168 heatmap</text>
+<text x="1160" y="530" class="s">for small scene edits</text>
+<text x="1160" y="552" class="s">(inpainting, splices)</text>
+
+<!-- connectors to LLM input -->
+<path class="ln" d="M240 576V620"/>
+<path class="ln" d="M700 576V620"/>
+<path class="ln" d="M1160 576V610H1020V620" />
+<text x="256" y="604" class="l" font-size="12">mask trained on OpenForensics, DiffusionFace, CASIA, SD_inpaint</text>
+
+<!-- LLM input chips -->
+<g filter="url(#sh)"><rect x="60" y="624" width="1280" height="150" rx="18" fill="#fff" stroke="#cbd5e1" stroke-width="2"/></g>
+<text x="86" y="652" class="h">LLM input tokens and prompt</text>
+<g filter="url(#sh)"><rect x="86" y="668" width="280" height="84" rx="12" fill="url(#paper)"/></g>
+<text x="226" y="702" class="t" font-size="17">&lt;deepfake&gt; token</text>
+<text x="226" y="726" class="s">projector(2-d logits)  [PAPER]</text>
+<g filter="url(#sh)"><rect x="386" y="668" width="280" height="84" rx="12" fill="url(#new)"/></g>
+<text x="526" y="702" class="t" font-size="17">Evidence token (16-d)</text>
+<text x="526" y="726" class="s">verdict, type, filters  [NEW]</text>
+<g filter="url(#sh)"><rect x="686" y="668" width="280" height="84" rx="12" fill="url(#new)"/></g>
+<text x="826" y="702" class="t" font-size="17">3 region tokens</text>
+<text x="826" y="726" class="s">inside / outside / filtered  [NEW]</text>
+<g filter="url(#sh)"><rect x="986" y="668" width="334" height="84" rx="12" fill="url(#newg)"/></g>
+<text x="1153" y="702" class="t" font-size="17">Text hint in the prompt</text>
+<text x="1153" y="726" class="s">edit type + marked part + position  [NEW]</text>
+<path class="ln" d="M700 774V820"/>
+
+<!-- LLaVA -->
+<g filter="url(#sh)"><rect x="300" y="824" width="800" height="120" rx="18" fill="url(#paper)"/></g>
+<rect x="1010" y="810" width="76" height="22" rx="11" fill="#1e3a8a"/><text x="1048" y="826" class="tag">PAPER</text>
+<text x="700" y="862" class="t">LLaVA-1.5-7B writes the explanation</text>
+<text x="700" y="888" class="s">Trained in two steps by us:</text>
+<rect x="352" y="900" width="320" height="30" rx="15" fill="#059669"/><text x="512" y="921" class="tag" font-size="13">Stage B: projector only (LLM frozen)</text>
+<rect x="728" y="900" width="320" height="30" rx="15" fill="#059669"/><text x="888" y="921" class="tag" font-size="13">Stage C: QLoRA r=128, 4-bit</text>
+<path class="ln" d="M700 944V986"/>
+
+<!-- UI -->
+<g filter="url(#sh)"><rect x="300" y="990" width="800" height="84" rx="18" fill="url(#newg)"/></g>
+<rect x="1010" y="976" width="76" height="22" rx="11" fill="#065f46"/><text x="1048" y="992" class="tag">NEW</text>
+<text x="700" y="1024" class="t">Hybrid UI</text>
+<text x="700" y="1050" class="s">heads decide the verdict, LLM explains it; heatmap overlay, uncertainty banner, text checks</text>
+
+<!-- data panel -->
+<g filter="url(#sh)"><rect x="1130" y="800" width="230" height="210" rx="14" fill="#fff" stroke="#cbd5e1" stroke-width="2"/></g>
+<text x="1148" y="828" class="h">Training data</text>
+<circle cx="1154" cy="852" r="6" fill="#1d4ed8"/><text x="1168" y="857" class="l" font-size="13">DDVQA (paper)</text>
+<circle cx="1154" cy="878" r="6" fill="#059669"/><text x="1168" y="883" class="l" font-size="13">OpenForensics</text>
+<circle cx="1154" cy="904" r="6" fill="#059669"/><text x="1168" y="909" class="l" font-size="13">DiffusionFace</text>
+<circle cx="1154" cy="930" r="6" fill="#059669"/><text x="1168" y="935" class="l" font-size="13">CASIA v2, SD_inpaint</text>
+<circle cx="1154" cy="956" r="6" fill="#059669"/><text x="1168" y="961" class="l" font-size="13">MMTD texts, FakeClue</text>
+<circle cx="1154" cy="982" r="6" fill="#059669"/><text x="1168" y="987" class="l" font-size="13">teacher region names</text>
+</svg>

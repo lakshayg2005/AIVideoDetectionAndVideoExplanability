@@ -30,6 +30,10 @@ Findings that motivated our changes (RESULTS.md sections 1-2):
 
 ## 3. Architectural changes
 
+![Architecture: paper vs our additions](docs/architecture.png)
+
+(Vector version: `docs/architecture.svg`.) Text version of the same diagram:
+
 Legend: `[PAPER]` = already in M2F2-Det (released code/weights). `[NEW]` = added by us.
 
 ```
