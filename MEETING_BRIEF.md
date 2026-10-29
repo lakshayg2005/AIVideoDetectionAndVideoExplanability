@@ -30,6 +30,62 @@ Findings that motivated our changes (RESULTS.md sections 1-2):
 
 ## 3. Architectural changes
 
+Legend: `[PAPER]` = already in M2F2-Det (released code/weights). `[NEW]` = added by us.
+
+```
+                         input image
+                              |
+                    +---------v----------+
+                    | CLIP ViT-L/14-336  |  [PAPER] (fine-tuned by authors)
+                    +----+----------+----+
+        layers 8/16/-2   |          | layer -2 patch features
+        (multi-scale)    |          |
+                         |   +------v---------------------------+
+                         |   | Forgery-prompt text branch        |  [PAPER]
+                         |   | (learned prompts -> 24x24 score   |
+                         |   |  map) + DenseNet-121 + linear     |
+                         |   +------+---------------------------+
+                         |          | real/fake logits (2-d)
+                         |          |
+  +----------------------v--+       |      +-----------------------------------------+
+  | FPN MASK DECODER        |  [NEW]|      | HI-RES BRANCH (v5/v6)            [NEW]  |
+  |  -> forged-region mask  |       |      | 672 px, SRM noise stem, log-FFT,        |
+  |  -> processing mask     |       |      | frozen DINOv2-B -> 168x168 heatmap      |
+  +-----------+-------------+       |      +-------------------+---------------------+
+              |                     |                          |
+  +-----------v-------------+       |                          |
+  | TYPE HEAD (6 types)     |  [NEW]|   trained with GT masks (OpenForensics,
+  | FILTER HEAD (6 filters) |       |   DiffusionFace, CASIA, SD_inpaint) and
+  +-----------+-------------+       |   distilled from the frozen released detector [NEW]
+              |                     |
+              +----------+----------+
+                         |
+        +----------------v--------------------------------------------+
+        | LLM INPUT                                                   |
+        |  <deepfake> token = projector(2-d logits)          [PAPER]  |
+        |  + 16-d evidence token (verdict, type, filters)    [NEW]    |
+        |  + 3 region tokens (inside / outside / filtered)   [NEW]    |
+        |  + text hint: type + marked region + position      [NEW]    |
+        +----------------+--------------------------------------------+
+                         |
+        +----------------v--------------------------------------------+
+        | LLaVA-1.5-7B                                      [PAPER]   |
+        |  Stage B: projector only        [NEW]                       |
+        |  Stage C: QLoRA r=128, 4-bit    [NEW]                       |
+        |  trained on DDVQA [PAPER data] + MMTD, FakeClue,            |
+        |  teacher region names, thinned lighting text    [NEW data]  |
+        +----------------+--------------------------------------------+
+                         |
+        +----------------v--------------------------------------------+
+        | HYBRID UI [NEW]: heads decide the verdict, LLM explains;    |
+        | heatmap overlay, uncertainty banner, text checks            |
+        +-------------------------------------------------------------+
+```
+
+What the paper has: CLIP, the forgery-prompt detector with DenseNet, the 2-d -> `<deepfake>` token, LLaVA, DDVQA.
+What we added: everything marked `[NEW]` (mask supervision, type/filter heads, hi-res branch, evidence and region
+tokens, Stage B/C training, new text data, hybrid UI).
+
 | # | Change | Why |
 |---|---|---|
 | 1 | **Mask decoder** (FPN over CLIP layers 8 / 16 / -2, the 24x24 score map and DenseNet features) giving a forged-region mask and a processing (filter) mask | the paper has no pixel-level supervision; ours is trained on ground-truth masks |
