@@ -170,3 +170,6 @@ checkpoints/llava-v1.5-7b-M2F2-Det/
 *.bin
 *.safetensors
 *.ckpt
+
+# ExDDV preprocessing output (regenerate with scripts/exddv_pipeline.sh)
+data/ExDDV/
