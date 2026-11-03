@@ -171,5 +171,11 @@ checkpoints/llava-v1.5-7b-M2F2-Det/
 *.safetensors
 *.ckpt
 
-# ExDDV preprocessing output (regenerate with scripts/exddv_pipeline.sh)
-data/ExDDV/
+# ExDDV preprocessing output: face crops, annotations and reports are tracked.
+# Full frames (2.4 GB) and working files are not; regenerate with scripts/exddv_pipeline.sh
+data/ExDDV/frames/
+data/ExDDV/real/frames/
+data/ExDDV/.state/
+data/ExDDV/real/.state/
+data/ExDDV/.download_env/
+data/ExDDV/*.log

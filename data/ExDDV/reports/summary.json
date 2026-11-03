@@ -1,0 +1,35 @@
+{
+  "annotations_in_csv": 4347,
+  "train_annotations_removed_for_overlap": 892,
+  "annotations_missing_video": 1354,
+  "annotations_missing_video_by_dataset": {
+    "Deeperforensics": 991,
+    "DeepfakeDetection": 269,
+    "BioDeepAV": 94
+  },
+  "annotations_failed": 0,
+  "annotations_with_images": 2101,
+  "clicks_outside_video_dropped": 0,
+  "full_frames": 9475,
+  "face_crops": 9475,
+  "face_source": {
+    "detected": 9474,
+    "nearest_frame": 1
+  },
+  "face_crops_by_split": {
+    "train": 7071,
+    "test": 1222,
+    "val": 1182
+  },
+  "face_crops_by_manipulation": {
+    "FaceShifter": 3728,
+    "FaceSwap": 3043,
+    "Face2Face": 2704
+  },
+  "annotations_by_split": {
+    "train": 1561,
+    "test": 271,
+    "val": 269
+  },
+  "annotations_whose_video_is_in_multiple_splits": 583
+}

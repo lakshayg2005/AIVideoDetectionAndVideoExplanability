@@ -1,0 +1,21 @@
+{
+  "real_videos": 867,
+  "real_videos_by_split": {
+    "train": 419,
+    "test": 243,
+    "val": 205
+  },
+  "failed_videos": {},
+  "images": 7719,
+  "images_by_split": {
+    "train": 5548,
+    "test": 1216,
+    "val": 955
+  },
+  "face_source": {
+    "detected": 7719
+  },
+  "frames_past_real_video_end": 0,
+  "fake_images": 9475,
+  "fake_images_with_a_real_pair": 7870
+}
