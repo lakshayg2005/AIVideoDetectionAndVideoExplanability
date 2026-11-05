@@ -2,30 +2,44 @@
   "casia": {
     "n": 144,
     "verdict_acc": 0.5208333333333334,
-    "no_verdict": 0.0
+    "no_verdict": 0.0,
+    "mentions_lighting": 0.06944444444444445,
+    "words": 52.34722222222222,
+    "location_mentioned": 0.16666666666666666,
+    "location_precision": 0.40277777777777785
   },
   "ddvqa_c40": {
     "n": 144,
     "verdict_acc": 0.8680555555555556,
     "no_verdict": 0.0,
     "precision_vs_gt_mask": 0.7527777777777778,
-    "recall_vs_gt_mask": 0.3675925925925926
+    "recall_vs_gt_mask": 0.3675925925925926,
+    "mentions_lighting": 0.22916666666666666,
+    "words": 34.11805555555556
   },
   "diffusionface": {
     "n": 144,
     "verdict_acc": 0.5763888888888888,
     "no_verdict": 0.0,
     "precision_vs_gt_mask": 0.7698412698412699,
-    "recall_vs_gt_mask": 0.40238095238095234
+    "recall_vs_gt_mask": 0.40238095238095234,
+    "mentions_lighting": 0.16666666666666666,
+    "words": 34.729166666666664
   },
   "diffusionface_unseen": {
     "n": 72,
     "verdict_acc": 0.041666666666666664,
-    "no_verdict": 0.0
+    "no_verdict": 0.0,
+    "mentions_lighting": 0.08333333333333333,
+    "words": 39.208333333333336
   },
   "sd_inpaint": {
     "n": 144,
     "verdict_acc": 0.4930555555555556,
-    "no_verdict": 0.0
+    "no_verdict": 0.0,
+    "mentions_lighting": 0.013888888888888888,
+    "words": 47.875,
+    "location_mentioned": 0.05555555555555555,
+    "location_precision": 0.25
   }
 }
