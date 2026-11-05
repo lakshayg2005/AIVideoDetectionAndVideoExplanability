@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1500" width="1500" height="1500" font-family="Helvetica, Arial, sans-serif"><defs><linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient><linearGradient id="heads" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fb923c"/><stop offset="1" stop-color="#ea580c"/></linearGradient><linearGradient id="llm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#6d28d9"/></linearGradient><linearGradient id="ui" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#059669"/></linearGradient><linearGradient id="grey" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#475569"/></linearGradient>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="125%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.18"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker></defs>
+<rect width="1500" height="1500" fill="#f1f5f9"/>
+<text x="750" y="46" font-size="32" fill="#0f172a" font-weight="800" text-anchor="middle">One real example, traced through the system</text>
+<text x="750" y="74" font-size="15" fill="#475569" font-weight="400" text-anchor="middle">Input: FAKE_photoshop_splice_1.jpg (a cat's face pasted into a photo). Numbers are what the live UI returned.</text>
+<g filter="url(#sh)"><rect x="40" y="110" width="300" height="220" rx="14" fill="url(#grey)"/></g>
+<text x="190" y="205" font-size="22" fill="#fff" font-weight="700" text-anchor="middle">Input photo</text>
+<text x="190" y="235" font-size="14" fill="#fff" font-weight="400" text-anchor="middle">a cat's face pasted in</text>
+<text x="190" y="260" font-size="14" fill="#fff" font-weight="400" text-anchor="middle">(no human face)</text>
+<path d="M340 220L410 220" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="410" y="110" width="500" height="220" rx="14" fill="url(#ui)"/></g>
+<text x="426" y="138" font-size="18" fill="#fff" font-weight="700" text-anchor="start">1. Face finder</text>
+<text x="426" y="164" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">No face found, so the whole image is used.</text>
+<text x="426" y="185" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">The UI adds the note:</text>
+<text x="426" y="206" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">"No face detected - analysed the whole image."</text>
+<text x="426" y="227" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Output: the full image, flag is_face = false</text>
+<path d="M910 220L980 220" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="980" y="110" width="480" height="220" rx="14" fill="url(#paper)"/></g>
+<text x="996" y="138" font-size="18" fill="#fff" font-weight="700" text-anchor="start">2. CLIP: 24 x 24 = 576 patches</text>
+<text x="996" y="164" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">The image is cut into patches of 14 x 14 pixels</text>
+<text x="996" y="185" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">(after resizing to 336 x 336).</text>
+<text x="996" y="206" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Each patch becomes a vector of 1024 numbers.</text>
+<text x="996" y="227" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Output: 576 x 1024 numbers at 3 layers</text>
+<path d="M1220 330L1220 380" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="980" y="380" width="480" height="200" rx="14" fill="url(#paper)"/></g>
+<text x="996" y="408" font-size="18" fill="#fff" font-weight="700" text-anchor="start">3. Paper detector (first opinion)</text>
+<text x="996" y="434" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Text branch + DenseNet + linear layer.</text>
+<text x="996" y="455" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Output: fake probability about 98%</text>
+<text x="996" y="476" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">(2 numbers: real and fake)</text>
+<text x="996" y="497" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">This also becomes the &lt;deepfake&gt; token</text>
+<path d="M980 480L910 480" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="410" y="380" width="500" height="330" rx="14" fill="url(#heads)"/></g>
+<text x="426" y="408" font-size="18" fill="#fff" font-weight="700" text-anchor="start">4. Our heads</text>
+<text x="426" y="434" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Mask decoder: paints the forgery heatmap.</text>
+<text x="426" y="455" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  The hot area is the pasted cat face:</text>
+<text x="426" y="476" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  middle right, about 5% of the image.</text>
+<text x="426" y="497" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Type head probabilities:</text>
+<text x="426" y="518" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  splicing / copy-move   99.8%</text>
+<text x="426" y="539" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  no manipulation         0.2%</text>
+<text x="426" y="560" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  diffusion inpainting    0.001%</text>
+<text x="426" y="581" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Filter head: yes/no for 6 filters (not shown here).</text>
+<text x="426" y="602" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Verdict from the heads: fake (98.1%)</text>
+<path d="M660 710L660 760" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="410" y="760" width="500" height="300" rx="14" fill="url(#heads)"/></g>
+<text x="426" y="788" font-size="18" fill="#fff" font-weight="700" text-anchor="start">5. Packing for the language model</text>
+<text x="426" y="814" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">&lt;deepfake&gt; token: from the 2 detector numbers</text>
+<text x="426" y="835" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Evidence token (16 numbers): fake 98%,</text>
+<text x="426" y="856" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  splice 99.8%, forged area 5%, ...</text>
+<text x="426" y="877" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">3 region tokens (1024 numbers each):</text>
+<text x="426" y="898" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  inside the edit / outside / filtered</text>
+<text x="426" y="919" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Hint sentence, built by rules (wording as the template):</text>
+<text x="426" y="940" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  "The forensic heads indicate splicing / copy-move;</text>
+<text x="426" y="961" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  the heatmap marks the middle right of the image</text>
+<text x="426" y="982" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">  (5% of it)."</text>
+<path d="M910 910L980 910" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="980" y="760" width="480" height="300" rx="14" fill="url(#llm)"/></g>
+<text x="996" y="788" font-size="18" fill="#fff" font-weight="700" text-anchor="start">6. LLaVA writes (about 3 seconds)</text>
+<text x="996" y="814" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Reads: image tokens + our tokens +</text>
+<text x="996" y="835" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">"The forensic heads indicate splicing ... </text>
+<text x="996" y="856" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Is this image real or fake? Explain why."</text>
+<text x="996" y="877" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start"></text>
+<text x="996" y="898" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">It writes, one word at a time:</text>
+<text x="996" y="919" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">"This image is fake. Content has been pasted in</text>
+<text x="996" y="940" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">from another image or duplicated within the image</text>
+<text x="996" y="961" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">(splicing / copy-move). The tampered area is the</text>
+<text x="996" y="982" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">cat's face, in the right of the image, covering about 5% of it."</text>
+<path d="M1220 1060L1220 1130" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="40" y="1130" width="1420" height="300" rx="14" fill="url(#ui)"/></g>
+<text x="56" y="1158" font-size="18" fill="#fff" font-weight="700" text-anchor="start">7. What the professor sees on the screen</text>
+<text x="56" y="1184" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Banner:  LIKELY FAKE - splicing / copy-move (Photoshop)      Fake probability 98.1%</text>
+<text x="56" y="1205" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Signals: detector fake (98%) - type head fake - explainer fake      (all three agree, so no "uncertain" warning)</text>
+<text x="56" y="1226" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Manipulation type:  splicing / copy-move 99.8%,  no manipulation 0.2%,  diffusion inpainting 0.001%</text>
+<text x="56" y="1247" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Red heatmap over the pasted area (blue map = filters, not examined for this image).</text>
+<text x="56" y="1268" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Forged region (red outline): middle right of the image, 5% of it.</text>
+<text x="56" y="1289" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Explanation: the text from step 6.</text>
+<text x="56" y="1310" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Checks: the sentence says "right of the image" and the heatmap is on the right, so no warning is added.</text>
+<text x="56" y="1331" font-size="13.5" fill="#fff" font-weight="400" text-anchor="start">Time: 3.1 s</text>
+</svg>

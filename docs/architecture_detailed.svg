@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 2018" width="1500" height="2018" font-family="Helvetica, Arial, sans-serif"><defs><linearGradient id="paper" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient><linearGradient id="heads" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fb923c"/><stop offset="1" stop-color="#ea580c"/></linearGradient><linearGradient id="llm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#6d28d9"/></linearGradient><linearGradient id="ui" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#059669"/></linearGradient><linearGradient id="grey" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#475569"/></linearGradient>
+<filter id="sh" x="-5%" y="-5%" width="110%" height="125%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-opacity="0.18"/></filter>
+<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#334155"/></marker></defs>
+<rect width="1500" height="2018" fill="#f1f5f9"/>
+<text x="750" y="48" font-size="32" fill="#0f172a" font-weight="800" text-anchor="middle">How the system works, step by step</text>
+<text x="750" y="76" font-size="15" fill="#475569" font-weight="400" text-anchor="middle">Left: each stage with its input (IN), output (OUT) and job. Right: a plain-words analogy. Tag shows whether it came from the paper or is ours.</text>
+<g filter="url(#sh)"><rect x="40" y="110" width="880" height="118" rx="16" fill="url(#grey)"/></g>
+<text x="60" y="140" font-size="20" fill="#fff" font-weight="700" text-anchor="start">0. Input image</text>
+<rect x="836" y="98" width="68" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="870.0" y="114" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">INPUT</text>
+<text x="60" y="168" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="168" font-size="14" fill="#fff" font-weight="400" text-anchor="start">a photo or video frame uploaded in the browser (any size, e.g. 1000 x 800 pixels)</text>
+<text x="60" y="190" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">OUT</text>
+<text x="152" y="190" font-size="14" fill="#fff" font-weight="400" text-anchor="start">the same picture as numbers: height x width x 3 colour values (red, green, blue)</text>
+<rect x="960" y="110" width="500" height="118" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="136" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the evidence on the table</text>
+<text x="974" y="160" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">A computer sees a picture as a big grid of</text>
+<text x="974" y="180" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">numbers. Nothing "means" anything yet.</text>
+<path d="M480 228L480 274" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="40" y="274" width="880" height="140" rx="16" fill="url(#ui)"/></g>
+<text x="60" y="304" font-size="20" fill="#fff" font-weight="700" text-anchor="start">1. Face finder (MediaPipe FaceMesh)</text>
+<rect x="844" y="262" width="60" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="874.0" y="278" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">OURS</text>
+<text x="60" y="332" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="332" font-size="14" fill="#fff" font-weight="400" text-anchor="start">the full image</text>
+<text x="60" y="354" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">JOB</text>
+<text x="152" y="354" font-size="14" fill="#fff" font-weight="400" text-anchor="start">looks for a human face and 468 landmarks (eyes, nose, mouth, jaw)</text>
+<text x="60" y="376" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">OUT</text>
+<text x="152" y="376" font-size="14" fill="#fff" font-weight="400" text-anchor="start">a cropped face with a margin, or the whole image if no face is found; a flag "is it a face?"</text>
+<rect x="960" y="274" width="500" height="140" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="300" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: pick the right area to inspect</text>
+<text x="974" y="324" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">The paper's detector is built for faces. If it is a</text>
+<text x="974" y="344" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">landscape or a cat, we keep the whole image.</text>
+<path d="M480 414L480 460" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/>
+<g filter="url(#sh)"><rect x="40" y="460" width="880" height="140" rx="16" fill="url(#paper)"/></g>
+<text x="60" y="490" font-size="20" fill="#fff" font-weight="700" text-anchor="start">2. Vision encoder: CLIP ViT-L/14-336</text>
+<rect x="836" y="448" width="68" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="870.0" y="464" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">PAPER</text>
+<text x="60" y="518" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="518" font-size="14" fill="#fff" font-weight="400" text-anchor="start">the crop resized to 336 x 336 x 3</text>
+<text x="60" y="540" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">JOB</text>
+<text x="152" y="540" font-size="14" fill="#fff" font-weight="400" text-anchor="start">cuts the image into 14 x 14 pixel patches (24 x 24 = 576 patches) and describes each one</text>
+<text x="60" y="562" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">OUT</text>
+<text x="152" y="562" font-size="14" fill="#fff" font-weight="400" text-anchor="start">576 patch vectors of 1024 numbers, taken at layers 8, 16 and -2, plus one whole-image vector (CLS)</text>
+<rect x="960" y="460" width="500" height="140" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="486" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the eyes</text>
+<text x="974" y="510" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">CLIP was trained on millions of image + caption</text>
+<text x="974" y="530" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">pairs, so its patch descriptions carry meaning:</text>
+<text x="974" y="550" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">"this looks like skin", "this looks like fur".</text>
+<path d="M480 600L480 646" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/><text x="492" y="628" font-size="13" fill="#334155" font-weight="600" text-anchor="start">patch features (layer -2)</text>
+<g filter="url(#sh)"><rect x="40" y="646" width="880" height="162" rx="16" fill="url(#paper)"/></g>
+<text x="60" y="676" font-size="20" fill="#fff" font-weight="700" text-anchor="start">3. M2F2 detector (the paper's own, kept frozen)</text>
+<rect x="836" y="634" width="68" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="870.0" y="650" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">PAPER</text>
+<text x="60" y="704" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="704" font-size="14" fill="#fff" font-weight="400" text-anchor="start">CLIP layer -2 features + the image</text>
+<text x="60" y="726" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">JOB</text>
+<text x="152" y="726" font-size="14" fill="#fff" font-weight="400" text-anchor="start">(a) text branch: learned "forgery prompts" give each patch a score = 576 numbers, a 24 x 24 map</text>
+<text x="60" y="748" font-size="14" fill="#fff" font-weight="400" text-anchor="start">(b) DenseNet-121 looks at the pixels for a second opinion; (c) a linear layer combines them</text>
+<text x="60" y="770" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">OUT</text>
+<text x="152" y="770" font-size="14" fill="#fff" font-weight="400" text-anchor="start">2 numbers: how "real" and how "fake"; plus the 24 x 24 score map and a DenseNet feature</text>
+<rect x="960" y="646" width="500" height="162" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="672" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the first opinion</text>
+<text x="974" y="696" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">This is what M2F2-Det already did: one real/fake</text>
+<text x="974" y="716" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">answer for faces. We keep it as a teacher and as</text>
+<text x="974" y="736" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">an input, but do not trust it alone.</text>
+<path d="M480 808L480 854" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/><text x="492" y="836" font-size="13" fill="#334155" font-weight="600" text-anchor="start">score map + features + CLIP layers 8 / 16 / -2</text>
+<g filter="url(#sh)"><rect x="40" y="854" width="880" height="206" rx="16" fill="url(#heads)"/></g>
+<text x="60" y="884" font-size="20" fill="#fff" font-weight="700" text-anchor="start">4. Our forensic heads (trained in Stage A)</text>
+<rect x="844" y="842" width="60" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="874.0" y="858" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">OURS</text>
+<text x="60" y="912" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="912" font-size="14" fill="#fff" font-weight="400" text-anchor="start">CLIP layers 8, 16, -2 (three zoom levels), the score map, DenseNet features</text>
+<text x="60" y="934" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">MASK</text>
+<text x="152" y="934" font-size="14" fill="#fff" font-weight="400" text-anchor="start">FPN mask decoder merges the three layers and paints two masks: where it was edited (forgery),</text>
+<text x="60" y="956" font-size="14" fill="#fff" font-weight="400" text-anchor="start">and where a filter was applied (processing); a pixel value near 1 means "edited here"</text>
+<text x="60" y="978" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">TYPE</text>
+<text x="152" y="978" font-size="14" fill="#fff" font-weight="400" text-anchor="start">type head: probabilities for real, face swap, splice, diffusion inpainting, img2img, fully generated</text>
+<text x="60" y="1000" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">FILTER</text>
+<text x="152" y="1000" font-size="14" fill="#fff" font-weight="400" text-anchor="start">filter head: yes/no for beauty, blur, JPEG, colour, sharpen, resize</text>
+<text x="60" y="1022" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">LEARNED</text>
+<text x="152" y="1022" font-size="14" fill="#fff" font-weight="400" text-anchor="start">from real edit masks (OpenForensics, DiffusionFace, CASIA, SD_inpaint) and by copying the paper's detector</text>
+<rect x="960" y="854" width="500" height="206" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="880" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the forensic specialists</text>
+<text x="974" y="904" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">The paper only said "fake". These heads say</text>
+<text x="974" y="924" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">WHERE (mask), WHAT KIND (type) and WHICH</text>
+<text x="974" y="944" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">FILTERS, because they were taught with the</text>
+<text x="974" y="964" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">true edited regions.</text>
+<path d="M480 1060L480 1106" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/><text x="492" y="1088" font-size="13" fill="#334155" font-weight="600" text-anchor="start">masks, type and filter probabilities</text>
+<g filter="url(#sh)"><rect x="40" y="1106" width="880" height="162" rx="16" fill="url(#heads)"/></g>
+<text x="60" y="1136" font-size="20" fill="#fff" font-weight="700" text-anchor="start">5. Packing the evidence for the language model</text>
+<rect x="780" y="1094" width="124" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="842.0" y="1110" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">OURS + PAPER</text>
+<text x="60" y="1164" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">&lt;deepfake&gt;</text>
+<text x="152" y="1164" font-size="14" fill="#fff" font-weight="400" text-anchor="start">the detector's 2 numbers go through a small layer (2 -&gt; 4096 numbers): one special token (paper)</text>
+<text x="60" y="1186" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">EVIDENCE</text>
+<text x="152" y="1186" font-size="14" fill="#fff" font-weight="400" text-anchor="start">one 16-number token: real/fake (2), types (6), filters (6), edited-area share, filtered-area share (ours)</text>
+<text x="60" y="1208" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">REGIONS</text>
+<text x="152" y="1208" font-size="14" fill="#fff" font-weight="400" text-anchor="start">3 tokens of 1024 numbers: average CLIP patch inside the edited area, outside it, and in the filtered area</text>
+<text x="60" y="1230" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">HINT</text>
+<text x="152" y="1230" font-size="14" fill="#fff" font-weight="400" text-anchor="start">a short sentence built by rules, e.g. "The forensic heads indicate splicing; the heatmap marks the middle right (5%)"</text>
+<rect x="960" y="1106" width="500" height="162" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="1132" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the briefing note</text>
+<text x="974" y="1156" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">The writer (LLM) cannot read masks. So we turn</text>
+<text x="974" y="1176" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">the findings into tokens (numbers it understands)</text>
+<text x="974" y="1196" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">and one plain sentence it can read.</text>
+<path d="M480 1268L480 1314" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/><text x="492" y="1296" font-size="13" fill="#334155" font-weight="600" text-anchor="start">tokens + hint + the question</text>
+<g filter="url(#sh)"><rect x="40" y="1314" width="880" height="162" rx="16" fill="url(#llm)"/></g>
+<text x="60" y="1344" font-size="20" fill="#fff" font-weight="700" text-anchor="start">6. LLaVA-1.5-7B writes the explanation</text>
+<rect x="788" y="1302" width="116" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="846.0" y="1318" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">PAPER MODEL</text>
+<text x="60" y="1372" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">IN</text>
+<text x="152" y="1372" font-size="14" fill="#fff" font-weight="400" text-anchor="start">the image as 576 tokens (LLaVA does this itself) + our tokens + the text: hint + "Is this image real or fake? Explain why."</text>
+<text x="60" y="1394" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">JOB</text>
+<text x="152" y="1394" font-size="14" fill="#fff" font-weight="400" text-anchor="start">a 7-billion-parameter language model predicts the answer one word at a time</text>
+<text x="60" y="1416" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">TRAIN</text>
+<text x="152" y="1416" font-size="14" fill="#fff" font-weight="400" text-anchor="start">Stage B: only the connector layer is trained. Stage C: the model is fine-tuned with QLoRA (4-bit, small add-on weights)</text>
+<text x="60" y="1438" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">OUT</text>
+<text x="152" y="1438" font-size="14" fill="#fff" font-weight="400" text-anchor="start">a paragraph: verdict, edit type, where, what looks wrong</text>
+<rect x="960" y="1314" width="500" height="162" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="1340" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the writer</text>
+<text x="974" y="1364" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">The writer was taught from 100,000s of examples</text>
+<text x="974" y="1384" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">to say things like "the cat's face was pasted in,</text>
+<text x="974" y="1404" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">in the middle right". It copies the heatmap's place.</text>
+<path d="M480 1476L480 1522" stroke="#334155" stroke-width="3" fill="none" marker-end="url(#ar)"/><text x="492" y="1504" font-size="13" fill="#334155" font-weight="600" text-anchor="start">text</text>
+<g filter="url(#sh)"><rect x="40" y="1522" width="880" height="140" rx="16" fill="url(#ui)"/></g>
+<text x="60" y="1552" font-size="20" fill="#fff" font-weight="700" text-anchor="start">7. The UI decides, shows and checks</text>
+<rect x="844" y="1510" width="60" height="22" rx="11" fill="#0f172a" opacity=".85"/><text x="874.0" y="1526" font-size="12" fill="#fff" font-weight="700" text-anchor="middle">OURS</text>
+<text x="60" y="1580" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">VERDICT</text>
+<text x="152" y="1580" font-size="14" fill="#fff" font-weight="400" text-anchor="start">fake if the heads' fake probability is 0.5 or more (the LLM only explains it)</text>
+<text x="60" y="1602" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">SHOW</text>
+<text x="152" y="1602" font-size="14" fill="#fff" font-weight="400" text-anchor="start">verdict, type, red heatmap, blue filter map, explanation, detected face</text>
+<text x="60" y="1624" font-size="13" fill="#fde68a" font-weight="700" text-anchor="start">CHECK</text>
+<text x="152" y="1624" font-size="14" fill="#fff" font-weight="400" text-anchor="start">banner "uncertain" if signals disagree; checks the text's location, size and lighting against the heatmap</text>
+<rect x="960" y="1522" width="500" height="140" rx="12" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="974" y="1548" font-size="15" fill="#0f172a" font-weight="700" text-anchor="start">Analogy: the judge</text>
+<text x="974" y="1572" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">The heads are more accurate than the writer, so</text>
+<text x="974" y="1592" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">they give the verdict. The checks catch sentences</text>
+<text x="974" y="1612" font-size="13.5" fill="#334155" font-weight="400" text-anchor="start">that disagree with the heatmap.</text>
+<rect x="40" y="1718" width="1420" height="260" rx="16" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+<text x="60" y="1750" font-size="20" fill="#0f172a" font-weight="700" text-anchor="start">How it was trained (three stages)</text>
+<rect x="60" y="1760" width="90" height="34" rx="17" fill="url(#heads)"/><text x="105" y="1783" font-size="15" fill="#fff" font-weight="700" text-anchor="middle">Stage A</text>
+<text x="166" y="1778" font-size="14" fill="#0f172a" font-weight="400" text-anchor="start">Train the forensic heads (and the high-res branch in v5/v6) on images with real masks. The detector and CLIP stay as they are.</text>
+<text x="166" y="1798" font-size="13" fill="#64748b" font-weight="400" text-anchor="start">Data: OpenForensics, DiffusionFace, CASIA, SD_inpaint, DDVQA, FakeClue</text>
+<rect x="60" y="1822" width="90" height="34" rx="17" fill="url(#heads)"/><text x="105" y="1845" font-size="15" fill="#fff" font-weight="700" text-anchor="middle">Stage B</text>
+<text x="166" y="1840" font-size="14" fill="#0f172a" font-weight="400" text-anchor="start">Teach the connector layers to feed our tokens to LLaVA. LLaVA itself is frozen. Starts from the paper's projector so nothing breaks.</text>
+<text x="166" y="1860" font-size="13" fill="#64748b" font-weight="400" text-anchor="start">Data: DDVQA + our texts</text>
+<rect x="60" y="1884" width="90" height="34" rx="17" fill="url(#heads)"/><text x="105" y="1907" font-size="15" fill="#fff" font-weight="700" text-anchor="middle">Stage C</text>
+<text x="166" y="1902" font-size="14" fill="#0f172a" font-weight="400" text-anchor="start">Fine-tune LLaVA with QLoRA so it writes explanations naming the edit type and the marked region. About 14 hours on the RTX 3060.</text>
+<text x="166" y="1922" font-size="13" fill="#64748b" font-weight="400" text-anchor="start">Data: DDVQA, MMTD-Set, FakeClue, teacher region names; lighting boilerplate removed</text>
+</svg>
