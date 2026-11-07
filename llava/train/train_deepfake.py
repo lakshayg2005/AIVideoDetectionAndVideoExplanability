@@ -1074,6 +1074,11 @@ def train(attn_implementation=None):
         # stage 2 on a quantized base: only the 16-bit projector trains (4-bit weights stay frozen),
         # so transformers' "purely quantized model" guard does not apply
         model._hf_peft_config_loaded = True
+    if training_args.bits == 16 and training_args.fp16:
+        # fp16 AMP (Turing GPUs have no bf16): the grad scaler cannot unscale fp16 gradients, so trainable params stay fp32
+        for p in model.parameters():
+            if p.requires_grad and p.dtype == torch.float16:
+                p.data = p.data.float()
     trainer = LLaVATrainer(model=model,
                     tokenizer=tokenizer,
                     args=training_args,
