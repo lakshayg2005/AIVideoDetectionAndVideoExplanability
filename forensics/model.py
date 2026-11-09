@@ -174,19 +174,61 @@ def evidence(out, hs_last):
     return ev, torch.stack([pool(forg), pool(1 - forg), pool(proc)], 1)
 
 
+IMNET_MEAN = (0.485, 0.456, 0.406)
+IMNET_STD = (0.229, 0.224, 0.225)
+
+
+def hires_pixels(images, size=672):
+    """High-res input of the v5+ heads from original PIL images: shortest side to `size` (bicubic), centre crop, ImageNet
+    normalisation. The same resize + crop geometry as the 336 px CLIP input (so the two branches stay spatially aligned).
+    Returns [B, 3, size, size] float32."""
+    import numpy as np
+    from PIL import Image
+    mean, std = np.array(IMNET_MEAN, np.float32), np.array(IMNET_STD, np.float32)
+    out = []
+    for im in images:
+        im = im.convert('RGB')
+        w, h = im.size
+        sc = size / min(w, h)
+        im = im.resize((max(size, round(w * sc)), max(size, round(h * sc))), Image.BICUBIC)
+        w, h = im.size
+        l, t = (w - size) // 2, (h - size) // 2
+        a = np.asarray(im.crop((l, t, l + size, t + size)), np.float32) / 255
+        out.append(torch.from_numpy(((a - mean) / std).transpose(2, 0, 1).copy()))
+    return torch.stack(out)
+
+
 class ForensicHeads(nn.Module):
     """The new Stage-A heads as one module, for use inside the LLaVA model (which owns the vision tower and
-    the detector as `deepfake_encoder`). Parameter names match M2F2Seg so its checkpoints map directly."""
+    the detector as `deepfake_encoder`). Parameter names match M2F2Seg so its checkpoints map directly.
 
-    def __init__(self):
+    hires=True mirrors the v5+ heads (noise stem + FFT feature + DINOv2 -> sharper heatmap, type head with the FFT input).
+    The frozen DINOv2 is not part of any checkpoint and cannot be built while the LLaVA model itself is being built
+    (weights are on the meta device then), so it is attached on first use by attach_dino()."""
+
+    def __init__(self, hires=False, dino_name='facebook/dinov2-base'):
         super().__init__()
+        self.hires, self.dino_name = hires, dino_name
         self.decoder = MaskDecoder()
         self.aux = nn.Parameter(torch.tensor([10.0, 0.0]))
-        self.type_head = nn.Sequential(nn.Linear(3 * 1024, 512), nn.GELU(), nn.Dropout(0.1),
+        self.type_head = nn.Sequential(nn.Linear(3 * 1024 + (FFT_DIM if hires else 0), 512), nn.GELU(), nn.Dropout(0.1),
                                        nn.Linear(512, N_TYPES + N_FILTERS))
+        if hires:
+            self.hr = HiResBranch(use_dino=False)
+            self.refine = HiResRefine(use_dino=True)
 
-    def forward(self, det, pixel, hs, text=None):
-        return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text)
+    def attach_dino(self, device, dtype):
+        if self.hires and self.hr.dino is None:
+            self.hr.dino = Dinov2Model.from_pretrained(self.dino_name).requires_grad_(False).eval().to(device=device, dtype=dtype)
+
+    def forward(self, det, pixel, hs, text=None, pixel_hr=None):
+        if not self.hires:
+            return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text)
+        if pixel_hr is None:
+            raise ValueError('these forensic heads need the high-res render (hires_pixels) of the same images')
+        self.attach_dino(pixel.device, next(self.type_head.parameters()).dtype)
+        hr = self.hr(pixel_hr.to(device=pixel.device, dtype=next(self.type_head.parameters()).dtype))
+        return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text, hr=hr, refine=self.refine)
 
 
 class M2F2Seg(nn.Module):

@@ -36,6 +36,11 @@ from ..deepfake.M2F2Det.model import M2F2Det
 from llava.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_PATCH_TOKEN, DEFAULT_IM_START_TOKEN, DEFAULT_IM_END_TOKEN, DEEPFAKE_TOKEN_INDEX
 from llava.mm_utils import get_anyres_image_grid_shape, process_images
 
+# Flash-attention SDPA kernels need compute capability >= 8.0 (Ampere); on older GPUs (Turing, e.g. Quadro RTX 8000) the
+# backward pass fails with "Expected is_sm80 || is_sm90", so fall back to the memory-efficient / math kernels there.
+if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8:
+    torch.backends.cuda.enable_flash_sdp(False)
+
 class LlavaConfig(LlamaConfig):
     model_type = "llava_llama"
 
@@ -627,11 +632,12 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
         self.forensic = None
         if getattr(config, 'forensic_head', False):
             from forensics.model import ForensicHeads, EVIDENCE_DIM
-            self.forensic = ForensicHeads().requires_grad_(False)
+            self.forensic = ForensicHeads(hires=getattr(config, 'forensic_hires', False)).requires_grad_(False)
             self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=EVIDENCE_DIM)
         else:
             self.deepfake_projector = build_multimodal_projector(config, projector_type='mlp2x_gelu', multimodal_hidden_size=2)
         self._forensic_hs, self._forensic_text, self.last_forensics = None, None, None
+        self._forensic_hr = None    # high-res render of the current batch (hires heads only), set by _set_forensic_hr
         # Initialize weights and apply final processing
         vt = self.get_vision_tower()
         ip = getattr(vt, 'image_processor', None) if vt is not None else None
@@ -686,13 +692,22 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
         with torch.no_grad():    # detector and heads stay frozen in stages B and C
             if self._forensic_text is None:
                 self._forensic_text = det.text_proj(det.clip_text_encoder().to(dtype))
-            out = self.forensic(det, pixel.to(device=hs[0].device, dtype=dtype), hs, self._forensic_text)
+            out = self.forensic(det, pixel.to(device=hs[0].device, dtype=dtype), hs, self._forensic_text,
+                                **({'pixel_hr': self._forensic_hr} if self.forensic.hires else {}))
             ev, regions = evidence(out, hs[-1])
         self.last_forensics = {k: v.detach().float() for k, v in out.items()}
         tok_e = self.deepfake_projector(ev.unsqueeze(1).to(self.deepfake_projector[0].weight.dtype))
         mm = self.get_model().mm_projector
         tok_r = mm(regions.to(mm[0].weight.dtype))
         return torch.cat([tok_e, tok_r.to(tok_e.dtype)], dim=1)
+
+    def _set_forensic_hr(self, deepfake_inputs):
+        """Hires heads: build the 672 px render from the ORIGINAL images (never by upsampling the 336 px tensor, whose noise
+        statistics differ) for the batch that is about to be encoded."""
+        if self.forensic is None or not self.forensic.hires:
+            return
+        from forensics.model import hires_pixels
+        self._forensic_hr = hires_pixels([x[0] if isinstance(x, (list, tuple)) else x for x in deepfake_inputs])
 
     def encode_deepfake_tokens(self, deepfake_inputs):
         if self.forensic is not None:
@@ -741,6 +756,7 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
                     for deepfake_input in deepfake_inputs:
                         deepfake_processed_inputs.append(self.processors['deepfake_processor'].preprocess(deepfake_input, return_tensors='pt')['pixel_values'][0])
                     deepfake_processed_inputs = torch.stack(deepfake_processed_inputs, dim=0).to(self.device)
+                    self._set_forensic_hr(deepfake_inputs)
                 else:
                     raise notImplementedError
             (
@@ -801,6 +817,7 @@ class LlavaLlamaForCausalLMDeepfake(LlamaForCausalLM, LlavaMetaForCausalLM):
                     for deepfake_input in deepfake_inputs:
                         deepfake_processed_inputs.append(self.processors['deepfake_processor'].preprocess(deepfake_input, return_tensors='pt')['pixel_values'][0])
                     deepfake_processed_inputs = torch.stack(deepfake_processed_inputs, dim=0).to(self.device)
+                    self._set_forensic_hr(deepfake_inputs)
                 else:
                     raise notImplementedError
             (

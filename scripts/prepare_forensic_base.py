@@ -56,8 +56,8 @@ def main(args):
     for k, v in sa.items():
         if k.startswith('det.'):
             new['deepfake_encoder.' + k[4:]] = v
-        elif k.startswith(('decoder.', 'type_head.')) or k == 'aux':
-            new['forensic.' + k] = v
+        elif k.startswith(('decoder.', 'type_head.', 'hr.', 'refine.')) or k == 'aux':
+            new['forensic.' + k] = v    # hr./refine.: the v5+ high-res branch (hr.dino is never saved)
     torch.manual_seed(0)
     hidden = json.load(open(os.path.join(args.m2f2_path, 'config.json')))['hidden_size']
     proj = torch.nn.Sequential(torch.nn.Linear(EVIDENCE_DIM, hidden), torch.nn.GELU(), torch.nn.Linear(hidden, hidden))
@@ -84,7 +84,8 @@ def main(args):
     wm.update({k: 'model-forensic.safetensors' for k in new})
     json.dump({'metadata': {}, 'weight_map': wm}, open(os.path.join(args.out, 'model.safetensors.index.json'), 'w'), indent=2)
     cfg = json.load(open(os.path.join(args.m2f2_path, 'config.json')))
-    cfg.update({'forensic_head': True, 'forensic_evidence_dim': EVIDENCE_DIM, 'deepfake_model_path': None})
+    cfg.update({'forensic_head': True, 'forensic_evidence_dim': EVIDENCE_DIM, 'deepfake_model_path': None,
+                'forensic_hires': any(k.startswith('refine.') for k in sa)})
     json.dump(cfg, open(os.path.join(args.out, 'config.json'), 'w'), indent=2)
     print(f'wrote {args.out}')
 
