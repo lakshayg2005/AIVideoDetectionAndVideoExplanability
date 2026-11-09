@@ -7,7 +7,7 @@ Built in parts; each part works and is tested on its own.
 | Part | What | Files | Status |
 |---|---|---|---|
 | 1 | Scene-aware frame sampling, MediaPipe face detection + tracking, per-frame forensic records (JSONL) | `video/frames.py`, `video/faces.py`, `video/analyze.py`, `tests/test_video_part1.py` | done |
-| 2 | Temporal aggregation: smoothed fake-probability timeline per face track, suspect segments, video verdict | `video/timeline.py` | |
+| 2 | Temporal aggregation: smoothed fake-probability timeline per face track, suspect segments, video verdict | `video/timeline.py`, `tests/test_video_part2.py` | done |
 | 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py` | |
 | 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py` | |
 | 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py` | |
@@ -22,7 +22,25 @@ Output: first line is the video header (fps, size, duration, shot cuts), then on
 `t, frame, scene, cut, track, box, p_fake, type, types, filters, forgery_area`. Track id -1 means no face was found
 and the whole frame was analysed. Check: `python tests/test_video_part1.py` (needs no model).
 
-Design notes:
+Part 2 usage:
+
+    python -m video.timeline clip.frames.jsonl --out clip.timeline.json
+
+Output (JSON): `verdict` (label real / fake / uncertain, trimmed-mean `p_video`, `fake_fraction`, `dominant_type`, `reasons`),
+`segments` (start, end, duration, mean / peak p, type, forgery area, frames, track), `isolated_spikes`, per-track `timeline`
+(raw and smoothed p) and `mean_filter_probs`. Check: `python tests/test_video_part2.py` (no model needed).
+
+Part 2 design notes:
+- Scores are smoothed per face track with a Gaussian whose width follows the sample spacing, so sparse sampling is not
+  smoothed less than dense sampling.
+- A segment is a run of >= 2 consecutive suspect samples (no gap above 1.5 s). One isolated high score is *not* a segment (the
+  image heads flag some real faces) but is listed under `isolated_spikes`.
+- Verdict: fake if the trimmed mean (the paper's protocol) is >= 0.5, **or** a localized segment is convincing (mean p >= 0.8 over
+  >= 1 s or >= 3 samples), so a short manipulated shot is not averaged away by a long untouched one; uncertain if the mean is near
+  the threshold or only weak segments exist; otherwise real.
+- Known limit: a manipulation shorter than the sampling step can still be missed (use `--max-frames` to sample more densely).
+
+Design notes (Part 1):
 - Frames are sampled sparsely, so the tracker matches by centre distance (in face sizes), not overlap alone.
 - Tracks restart at shot cuts; the first frames of every shot are always sampled, so a short manipulated shot
   is not skipped by an even grid.
