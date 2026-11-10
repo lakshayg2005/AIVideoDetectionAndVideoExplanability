@@ -8,7 +8,7 @@ Built in parts; each part works and is tested on its own.
 |---|---|---|---|
 | 1 | Scene-aware frame sampling, MediaPipe face detection + tracking, per-frame forensic records (JSONL) | `video/frames.py`, `video/faces.py`, `video/analyze.py`, `tests/test_video_part1.py` | done |
 | 2 | Temporal aggregation: smoothed fake-probability timeline per face track, suspect segments, video verdict | `video/timeline.py`, `tests/test_video_part2.py` | done |
-| 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py` | |
+| 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py`, `tests/test_video_part3.py` | done |
 | 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py` | |
 | 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py` | |
 | 6 | UI: video tab wired to parts 1-5 | `app/forensic_webui.py` | |
@@ -29,6 +29,22 @@ Part 2 usage:
 Output (JSON): `verdict` (label real / fake / uncertain, trimmed-mean `p_video`, `fake_fraction`, `dominant_type`, `reasons`),
 `segments` (start, end, duration, mean / peak p, type, forgery area, frames, track), `isolated_spikes`, per-track `timeline`
 (raw and smoothed p) and `mean_filter_probs`. Check: `python tests/test_video_part2.py` (no model needed).
+
+Part 3 usage:
+
+    python -m video.render clip.mp4 clip.frames.jsonl clip.timeline.json --out-dir out/ \
+        [--stagea runs/stagea_v7/last.pt --m2f2-shard <model-00003-of-00003.safetensors> --device cpu]
+
+Writes `<stem>.timeline.png` (fake probability per face over time, suspect segments shaded, shot cuts dotted),
+`<stem>.annotated.mp4` (every frame with the face box coloured green -> amber -> red by the interpolated score, plus a verdict
+bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment and the cleanest
+frames, each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
+are shown plain). Check: `python tests/test_video_part3.py` (needs only the face image used by the Part 1 test).
+
+Part 3 design notes:
+- The annotated video is drawn from the sampled records, not from a new model pass: scores and boxes are interpolated between
+  samples, and nothing is drawn where the samples are further apart than 1.5 s (the bar stays dark there: no evidence).
+- Only the key frames (<= 6) run the model again, so the heatmaps are cheap even on CPU.
 
 Part 2 design notes:
 - Scores are smoothed per face track with a Gaussian whose width follows the sample spacing, so sparse sampling is not

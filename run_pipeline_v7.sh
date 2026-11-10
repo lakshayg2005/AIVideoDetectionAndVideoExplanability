@@ -8,12 +8,12 @@ export PYTHONPATH="$(pwd):$PYTHONPATH"
 NEED_MB=${NEED_MB:-30000}
 run_stage() {   # run_stage <name> <log> <cmd...>: wait for the GPU, run, retry (up to 30x) if killed; stages resume from checkpoints
   name=$1; log=$2; shift 2
-  for try in $(seq 1 30); do
+  for try in $(seq 1 1000); do
     wait_gpu; say "$name start (try $try)"
     "$@" >> $log 2>&1 && return 0
     say "$name failed or was killed (try $try); re-queueing in 30 s"; sleep 30
   done
-  say "$name gave up after 30 tries"; return 1
+  say "$name gave up after 1000 tries"; return 1
 }
 say() { echo "[$(date '+%F %T')] $*" | tee -a $L/pipeline.log; }
 wait_gpu() { until [ "$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits | head -1)" -ge $NEED_MB ]; do sleep 5; done; }
