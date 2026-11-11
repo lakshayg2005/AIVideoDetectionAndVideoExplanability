@@ -39,7 +39,7 @@ fi
 if [ ! -f $R/eval_v7/summary.json ]; then
   wait_gpu; say "evaluation start"
   I=$R/data/index; D=$R/data
-  python -W ignore -m explain.eval_selfexplain --model-path $R/ckpt/stage-c-v7-lora --model-base $R/ckpt/forensic-base-v7 \
+  python -W ignore -m explain.eval_selfexplain --fp16 --model-path $R/ckpt/llava-v1.5-7b-M2F2-forensic_stage-c7-lora --model-base $R/ckpt/forensic-base-v7 \
       --index $I/ddvqa_c40.jsonl $I/diffusionface.jsonl $I/casia.jsonl $I/sd_inpaint.jsonl $I/openforensics_full.jsonl \
       --roots ddvqa=./utils diffusionface=$D/DiffusionFace/x casia=$D/CASIA2 sd_inpaint=$D/SD_inpaint openforensics=$D/OpenForensics \
       --hint --hint-style v3 --out-dir $R/eval_v7 >> $L/eval_v7.log 2>&1 || { say "evaluation failed"; exit 1; }

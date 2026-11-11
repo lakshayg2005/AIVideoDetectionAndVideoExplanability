@@ -226,9 +226,13 @@ class ForensicHeads(nn.Module):
             return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text)
         if pixel_hr is None:
             raise ValueError('these forensic heads need the high-res render (hires_pixels) of the same images')
-        self.attach_dino(pixel.device, next(self.type_head.parameters()).dtype)
-        hr = self.hr(pixel_hr.to(device=pixel.device, dtype=next(self.type_head.parameters()).dtype))
-        return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text, hr=hr, refine=self.refine)
+        dt = next(self.type_head.parameters()).dtype
+        self.attach_dino(pixel.device, dt)
+        # The heads were trained (and Stages A-C run) under fp16 autocast; with fp16 weights and no autocast the FFT feature and
+        # the DINOv2 features (fp32) would meet fp16 layers, so keep the same mixed precision here.
+        with torch.autocast(device_type=pixel.device.type, dtype=torch.float16, enabled=pixel.device.type == 'cuda'):
+            hr = self.hr(pixel_hr.to(device=pixel.device, dtype=dt))
+            return run_heads(det, self.decoder, self.aux, self.type_head, pixel, hs, text, hr=hr, refine=self.refine)
 
 
 class M2F2Seg(nn.Module):

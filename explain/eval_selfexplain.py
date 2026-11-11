@@ -130,7 +130,7 @@ def main(args):
         by.setdefault((r['source'], r['label']), []).append(r)
     recs = [r for v in by.values() for r in (rng.sample(v, args.per_source) if len(v) > args.per_source else v)]
     ds = ForgeryDataset(recs, roots, train=False)
-    eng = M2F2Engine(args.model_path, load_4bit=True, model_base=args.model_base)
+    eng = M2F2Engine(args.model_path, load_4bit=not args.fp16, model_base=args.model_base)
     forensic = getattr(eng.model, 'forensic', None) is not None
     os.makedirs(args.out_dir, exist_ok=True)
     full = open(os.path.join(args.out_dir, 'samples.jsonl'), 'w')
@@ -230,6 +230,7 @@ if __name__ == '__main__':
     ap.add_argument('--summarize-only', action='store_true', help='recompute summary.json from samples.jsonl')
     ap.add_argument('--fill-gt-pos', action='store_true', help='with --summarize-only: recompute scene masks (needs '
                     'the run\'s --index / --roots / --per-source) for location_precision of older runs')
+    ap.add_argument('--fp16', action='store_true', help='16-bit model with the LoRA merged (how the v7 explainer was trained) instead of 4-bit QLoRA inference')
     ap.add_argument('--hint', action='store_true', help="UI setting: the heads' heatmap hint and the UI question")
     ap.add_argument('--hint-style', choices=['v2', 'v3'], default='v2', help='v3: hint names the type head\'s verdict')
     ap.add_argument('--hint-old', action='store_true', help='no-region hint whenever no region is marked (UI before 2026-10-26)')
