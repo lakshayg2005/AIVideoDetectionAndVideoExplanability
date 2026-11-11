@@ -9,7 +9,7 @@ Built in parts; each part works and is tested on its own.
 | 1 | Scene-aware frame sampling, MediaPipe face detection + tracking, per-frame forensic records (JSONL) | `video/frames.py`, `video/faces.py`, `video/analyze.py`, `tests/test_video_part1.py` | done |
 | 2 | Temporal aggregation: smoothed fake-probability timeline per face track, suspect segments, video verdict | `video/timeline.py`, `tests/test_video_part2.py` | done |
 | 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py`, `tests/test_video_part3.py` | done |
-| 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py` | |
+| 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py`, `tests/test_video_part4.py` | done |
 | 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py` | |
 | 6 | UI: video tab wired to parts 1-5 | `app/forensic_webui.py` | |
 
@@ -40,6 +40,22 @@ Writes `<stem>.timeline.png` (fake probability per face over time, suspect segme
 bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment and the cleanest
 frames, each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
 are shown plain). Check: `python tests/test_video_part3.py` (needs only the face image used by the Part 1 test).
+
+Part 4 usage:
+
+    python -m video.explain clip.mp4 clip.frames.jsonl clip.timeline.json --out clip.explanation.json --no-llm      # rule-based text only
+    python -m video.explain clip.mp4 clip.frames.jsonl clip.timeline.json --out clip.explanation.json \
+        --model-path /data3/Aditya/bp_data/ckpt/llava-v1.5-7b-M2F2-forensic_stage-c7-lora --model-base /data3/Aditya/bp_data/ckpt/forensic-base-v7 --fp16
+
+Output: JSON (`summary`, `segments` with the LLM's key-frame explanation and whether it agrees, `clean_frame`, `notes`, `disagreements`,
+`text`) and the same text next to it as `.txt`. Check: `python tests/test_video_part4.py` (a stub replaces the LLM; no model needed).
+
+Part 4 design notes:
+- The verdict, times and edit types come from the Part 2 timeline, so the text cannot contradict the numbers; the LLM only adds the
+  image-level explanation of each segment's peak frame (the strongest 3 segments), with the segment's evidence written before its question
+  and the same heatmap hint the image UI gives it. A video with no suspect segment gets the cleanest frame explained instead.
+- If the LLM's verdict on a key frame disagrees with the timeline, the disagreement is stated in the text and the timeline verdict stands.
+- The real LLM path (`make_llm_ask`) is the image UI's two-step prompt; it was not run in the automated build (CPU-only rule), only the stubbed tests.
 
 Part 3 design notes:
 - The annotated video is drawn from the sampled records, not from a new model pass: scores and boxes are interpolated between
