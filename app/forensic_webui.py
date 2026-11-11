@@ -307,6 +307,8 @@ def main():
     ap.add_argument('--model-path', default='./checkpoints/llava-v1.5-7b-M2F2-Det', help='LLM for the explanations')
     ap.add_argument('--model-base', default=None)
     ap.add_argument('--no-llm', action='store_true', help='heatmaps only (no GPU needed)')
+    ap.add_argument('--fp16', action='store_true', help='load the LLM in 16-bit with the LoRA merged (needs ~17 GB of GPU memory in total), '
+                                                       'as the v7 explainer was trained, instead of 4-bit')
     ap.add_argument('--self-explain', action='store_true',
                     help='LLM is the Stage-C forensic model: one open question instead of per-part questions')
     ap.add_argument('--hint-style', choices=['v2', 'v3'], default='v2',
@@ -324,7 +326,7 @@ def main():
     if not args.no_llm:
         from app.engine import M2F2Engine
         print(f'Loading language model {args.model_path} ...')
-        LLM = M2F2Engine(args.model_path, load_4bit=True, model_base=args.model_base)
+        LLM = M2F2Engine(args.model_path, load_4bit=not args.fp16, model_base=args.model_base)
     print('Ready.')
     build_ui().queue(max_size=8).launch(server_name=args.host, server_port=args.port, share=args.share)
 
