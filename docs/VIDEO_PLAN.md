@@ -10,7 +10,7 @@ Built in parts; each part works and is tested on its own.
 | 2 | Temporal aggregation: smoothed fake-probability timeline per face track, suspect segments, video verdict | `video/timeline.py`, `tests/test_video_part2.py` | done |
 | 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py`, `tests/test_video_part3.py` | done |
 | 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py`, `tests/test_video_part4.py` | done |
-| 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py` | |
+| 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py`, `tests/test_video_part5.py` | done |
 | 6 | UI: video tab wired to parts 1-5 | `app/forensic_webui.py` | |
 
 Part 1 usage:
@@ -40,6 +40,23 @@ Writes `<stem>.timeline.png` (fake probability per face over time, suspect segme
 bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment and the cleanest
 frames, each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
 are shown plain). Check: `python tests/test_video_part3.py` (needs only the face image used by the Part 1 test).
+
+Part 5 usage:
+
+    python -m video.eval --root /path/to/ffpp_test --stagea runs/stagea_v7/last.pt --m2f2-shard <shard 3> --out-dir eval_video/
+    python -m video.eval --manifest videos.csv --cache-dir eval_video/frames --out-dir eval_video/     # reuse cached Part 1 output
+
+`--root` is a folder tree whose first-level folder names label the videos (`original/`, `real/`, `youtube/` ... are real, any other folder
+such as `Deepfakes/` is a fake and its name is the method); `--manifest` is a CSV `video,label[,method,fake_start,fake_end]`. Per video the Part 1
+records are cached, so a re-run (or a changed Part 2 rule) does not need the model. Output: `results.csv` (one row per video), `report.json`, `report.md`.
+
+Part 5 design notes:
+- Three video scores are compared so the temporal part is measured, not assumed: `mean` (trimmed mean of the frame probabilities, the image-model
+  baseline), `max` (strongest smoothed frame score) and `segment` (strongest suspect segment, else the trimmed mean). Report: AUC for each, and for the
+  Part 2 verdicts accuracy, fake recall, false positive rate and the share of `uncertain` (counted as neither fake nor real, so it lowers accuracy).
+- Per-method recall and AUC; localisation IoU only when the manifest gives the manipulated interval.
+- Held-out data only: nothing is trained or tuned here, and an unreadable video is reported as skipped (and counted in `skipped`), never dropped silently.
+- Check: `python tests/test_video_part5.py` (cached synthetic records; no model, no video files).
 
 Part 4 usage:
 
