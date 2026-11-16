@@ -11,7 +11,7 @@ Built in parts; each part works and is tested on its own.
 | 3 | Overlays: heatmap video / frame strip and a timeline plot | `video/render.py`, `tests/test_video_part3.py` | done |
 | 4 | Video-level explanation: LLM over the key frames with the timeline summary as the text hint | `video/explain.py`, `tests/test_video_part4.py` | done |
 | 5 | Video evaluation on held-out videos (FF++ test; ExDDV stays separate) | `video/eval.py`, `tests/test_video_part5.py` | done |
-| 6 | UI: video tab wired to parts 1-5 | `app/forensic_webui.py` | |
+| 6 | UI: video tab wired to parts 1-4 | `app/forensic_webui.py`, `tests/test_video_part6.py` | done |
 
 Part 1 usage:
 
@@ -40,6 +40,18 @@ Writes `<stem>.timeline.png` (fake probability per face over time, suspect segme
 bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment and the cleanest
 frames, each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
 are shown plain). Check: `python tests/test_video_part3.py` (needs only the face image used by the Part 1 test).
+
+Part 6 usage: `./run_forensic_ui.sh --stage-c7` (or `python -m app.forensic_webui ...`), open the **Video** tab, upload a clip. One click runs
+Parts 1-4: face tracking and per-frame heads, the timeline and verdict, then the plot, the annotated video, the key-frame heatmaps, a table of
+suspect segments and the explanation. `--no-llm` skips the key-frame explanations (the rule-based text stays). Check:
+`python tests/test_video_part6.py` (stub engine, no model).
+
+Part 6 design notes:
+- The tab replaced the first prototype (a uniform frame loop with one verdict from the trimmed mean); it now uses the same code as the command-line parts.
+- The language model already loaded for the Image tab is reused for the key frames (no second copy in GPU memory); only a Stage-C explainer
+  (`--self-explain`) is used for them, because the two-step prompt needs the heads inside it.
+- The annotated video is re-encoded to H.264 with ffmpeg so browsers can play it (OpenCV writes mp4v); without ffmpeg the mp4v file is returned.
+- Speed: face analysis is the cost (about 1-3 s per sampled frame on the GPU). More frames find shorter edits but take proportionally longer.
 
 Part 5 usage:
 

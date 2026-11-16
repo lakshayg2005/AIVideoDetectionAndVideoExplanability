@@ -37,6 +37,15 @@ def analyze(path, engine, max_frames=32, scene_aware=True, max_faces=3):
     return info, cuts, rows
 
 
+def write_records(path, info, cuts, rows):
+    """Writes the JSONL file the later parts read: the video header, then one line per record."""
+    with open(path, 'w') as f:
+        f.write(json.dumps({'video': info.path, 'fps': info.fps, 'n_frames': info.n_frames, 'size': [info.width, info.height],
+                            'duration': round(info.duration, 3), 'cuts': cuts}) + '\n')
+        for r in rows:
+            f.write(json.dumps(r) + '\n')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('video')
@@ -51,11 +60,7 @@ def main():
     engine = ForensicEngine(a.stagea, a.m2f2_shard, device=a.device)
     info, cuts, rows = analyze(a.video, engine, a.max_frames, not a.no_scene_aware)
     out = a.out or os.path.splitext(a.video)[0] + '.frames.jsonl'
-    with open(out, 'w') as f:
-        f.write(json.dumps({'video': info.path, 'fps': info.fps, 'n_frames': info.n_frames, 'size': [info.width, info.height],
-                            'duration': round(info.duration, 3), 'cuts': cuts}) + '\n')
-        for r in rows:
-            f.write(json.dumps(r) + '\n')
+    write_records(out, info, cuts, rows)
     p = [r['p_fake'] for r in rows]
     print(f'{len(rows)} records from {len(set(r["frame"] for r in rows))} frames, {len(cuts)} shot(s) -> {out}; '
           f'p_fake mean {np.mean(p):.3f} max {np.max(p):.3f}')

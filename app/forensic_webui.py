@@ -11,9 +11,8 @@ import argparse
 import time
 
 import gradio as gr
-import pandas as pd
 
-from app.engine import PARTS, aggregate, build_questions, crop_face, draw_box, sample_frames
+from app.engine import PARTS, build_questions, crop_face, draw_box
 from forensics.texts import NO_REGION_HINT, _position, make_hint
 from app.forensic_engine import (FILTER_NAMES, TYPE_NAMES, ForensicEngine, draw_heatmap, position_consistent,
                                  region_text, smart_crop)
@@ -222,33 +221,64 @@ def analyze_image(image, use_crop, use_llm, progress=gr.Progress()):
             draw_box(image, box, label, p_final) if box else None, ev, expl, f'{time.time() - t0:.1f}s')
 
 
-def analyze_video(video, n_frames, use_crop, use_llm, progress=gr.Progress()):
+def _h264(src):
+    """Browsers cannot play OpenCV's mp4v; re-encode with ffmpeg when it is installed (the mp4v file is returned otherwise)."""
+    import shutil
+    import subprocess
+    if not shutil.which('ffmpeg'):
+        return src
+    dst = src.replace('.mp4', '.h264.mp4')
+    r = subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', src, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', dst])
+    return dst if r.returncode == 0 else src
+
+
+def _video_verdict_md(tl):
+    v = tl['verdict']
+    color = {'fake': '#dc322f', 'real': '#28a745'}.get(v['label'], '#d08700')
+    word = {'fake': 'LIKELY FAKE', 'real': 'LIKELY REAL'}.get(v['label'], 'UNCERTAIN')
+    if v['label'] == 'fake' and v.get('dominant_type'):
+        word += f" — {TYPE_NAMES.get(v['dominant_type'], v['dominant_type'])}"
+    return (f"<h2 style='color:{color};margin:0'>{word}</h2>Video fake probability (trimmed mean): **{v['p_video']:.1%}** · "
+            f"{len(tl['segments'])} suspect segment(s) · {tl['n_samples']} sampled face records<br/>" + ' '.join(v['reasons']))
+
+
+def analyze_video(video, n_frames, use_llm, progress=gr.Progress()):
+    """The whole video pipeline: sample + track faces (Part 1), timeline and verdict (Part 2), overlays (Part 3),
+    explanation (Part 4). Returns the outputs of the Video tab."""
+    import json
+    import os
+    import tempfile
+    from video.analyze import analyze, write_records
+    from video.explain import explain_video, make_llm_ask
+    from video.render import render_all
+    from video.timeline import build_timeline
     if not video:
         raise gr.Error('Please upload a video.')
     t0 = time.time()
-    frames = sample_frames(video, int(n_frames))
-    if not frames:
+    work = tempfile.mkdtemp(prefix='video_ui_')
+    progress(0.05, desc='Sampling frames and tracking faces')
+    try:
+        info, cuts, rows = analyze(video, FORENSIC, int(n_frames))
+    except ValueError as e:
+        raise gr.Error(str(e))
+    if not rows:
         raise gr.Error('Could not read any frames from this video.')
-    rows, gallery, faces = [], [], []
-    for ts, fr in progress.tqdm(frames, desc='Analysing frames'):
-        face, box, is_face = smart_crop(fr, crop_face) if use_crop else (fr, None, False)
-        r = FORENSIC.analyze(face)
-        rows.append({'time (s)': round(ts, 2), 'fake probability': r['p_fake']})
-        faces.append((r['p_fake'], face, r, is_face))
-        gallery.append((draw_heatmap(face, r['forgery_map']), f"t={ts:.1f}s · fake {r['p_fake']:.0%}"))
-    p_video = aggregate([x['fake probability'] for x in rows])
-    label = 'fake' if p_video >= 0.5 else 'real'
-    key_p, key_face, key_r, key_is_face = (max if label == 'fake' else min)(faces, key=lambda x: x[0])
-    _, t, parts, ev = _evidence(key_r, key_face, key_is_face)
-    if SELF_EXPLAIN and use_llm and LLM is not None:
-        expl = _self_explain(key_face, key_r, key_is_face)[3]
-    else:
-        expl = _explanation(key_face, label, parts, key_is_face) if use_llm else '_Explanation not requested._'
-    n_fake = sum(x['fake probability'] >= 0.5 for x in rows)
-    df = pd.DataFrame(rows)
-    return (_verdict_md(label, p_video, t, f'<br/>{n_fake} of {len(rows)} sampled frames flagged fake.'),
-            gr.LinePlot(value=df, x='time (s)', y='fake probability', y_lim=[0, 1], title='Per-frame fake probability', height=240),
-            gallery, draw_heatmap(key_face, key_r['forgery_map']), ev, expl, f'{len(rows)} frames · {time.time() - t0:.1f}s')
+    frames_jsonl, tl_json = os.path.join(work, 'frames.jsonl'), os.path.join(work, 'timeline.json')
+    write_records(frames_jsonl, info, cuts, rows)
+    header = {'video': video, 'duration': info.duration}
+    tl = build_timeline(header, rows)
+    json.dump(tl, open(tl_json, 'w'))
+    progress(0.5, desc='Drawing the timeline and the annotated video')
+    out = render_all(video, frames_jsonl, tl_json, work, engine=FORENSIC)
+    ask = make_llm_ask(engine=LLM, hint_style=HINT_STYLE) if (SELF_EXPLAIN and use_llm and LLM is not None) else None
+    progress(0.8, desc='Writing the explanation' if ask else 'Summarising')
+    ex = explain_video(video, frames_jsonl, tl_json, ask)
+    text = ex['text'] if ask else ex['text'] + '\n\n_The language-model key-frame explanation is off (`--no-llm`, or not a Stage-C explainer, or unticked)._'
+    segs = [[x['face'], f"{x['start']:.1f}-{x['end']:.1f}", TYPE_NAMES.get(x['type'], x['type']), f"{x['mean_p']:.0%}", x['n_frames'],
+             {True: 'yes', False: 'NO', None: '-'}[x['agrees']]] for x in ex['segments']]
+    ann = _h264(out['annotated_mp4']) if out.get('annotated_mp4') else None
+    return (_video_verdict_md(tl), out['timeline_png'], ann, out.get('keyframes_png'), segs, text,
+            f"{len(rows)} records · {info.duration:.1f} s video · {len(cuts)} shot(s) · {time.time() - t0:.1f}s")
 
 
 def build_ui():
@@ -280,20 +310,19 @@ def build_ui():
                 with gr.Row():
                     with gr.Column(scale=1):
                         vid_in = gr.Video(label='Video', height=320)
-                        vid_n = gr.Slider(4, 48, value=16, step=1, label='Frames to sample')
-                        vid_crop = gr.Checkbox(value=True, label='Auto-crop the largest face')
-                        vid_llm = gr.Checkbox(value=LLM is not None, interactive=LLM is not None, label='Write an explanation (language model)')
+                        vid_n = gr.Slider(8, 96, value=32, step=1, label='Frames to sample (more finds shorter edits, takes longer)')
+                        vid_llm = gr.Checkbox(value=LLM is not None, interactive=LLM is not None, label='Explain the key frames (language model)')
                         vid_btn = gr.Button('Analyze', variant='primary')
                     with gr.Column(scale=1):
                         vid_verdict = gr.Markdown()
-                        vid_plot = gr.LinePlot()
-                        vid_key = gr.Image(label='Key frame heatmap', height=240)
-                        vid_ev = gr.Markdown()
-                        vid_expl = gr.Markdown()
+                        vid_plot = gr.Image(label='Fake probability over time (suspect segments shaded)')
                         vid_meta = gr.Markdown()
-                vid_gallery = gr.Gallery(label='Per-frame heatmaps', columns=6, height='auto')
-                vid_btn.click(analyze_video, [vid_in, vid_n, vid_crop, vid_llm],
-                              [vid_verdict, vid_plot, vid_gallery, vid_key, vid_ev, vid_expl, vid_meta])
+                vid_annot = gr.Video(label='Annotated video: face box green to red by score, verdict bar below with a playhead')
+                vid_segs = gr.Dataframe(headers=['face', 'time (s)', 'type', 'mean p', 'samples', 'explainer agrees'], label='Suspect segments')
+                vid_expl = gr.Markdown()
+                vid_keys = gr.Image(label='Key frames and their forgery heatmaps')
+                vid_btn.click(analyze_video, [vid_in, vid_n, vid_llm],
+                              [vid_verdict, vid_plot, vid_annot, vid_keys, vid_segs, vid_expl, vid_meta])
         gr.Markdown('<small>M2F2-Det (CVPR 2025) + mask-supervised forensic heads (this project). Heatmap red = predicted '
                     'forged region, blue = filtered region. Scores are model confidence, not proof.</small>')
     return demo

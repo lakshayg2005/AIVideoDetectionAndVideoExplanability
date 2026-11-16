@@ -148,12 +148,15 @@ def explain_video(video, frames_jsonl, timeline_json, ask=None, n_key=3):
                 text='\n\n'.join(parts))
 
 
-def make_llm_ask(model_path, model_base=None, fp16=True, hint_style='v3', max_new_tokens=200):
+def make_llm_ask(model_path=None, model_base=None, fp16=True, hint_style='v3', max_new_tokens=200, engine=None):
     """The image explainer as `ask(image, hint) -> text`, with the same two-step prompt as the image UI: a one-token pass lets the
-    heads inside the LLM look at the image, their heatmap hint is built, then the open question is asked with the segment hint in front."""
-    from app.engine import M2F2Engine
+    heads inside the LLM look at the image, their heatmap hint is built, then the open question is asked with the segment hint in front.
+    Pass an already loaded `engine` (the web UI's) to avoid loading the model twice."""
     from explain.eval_selfexplain import UI_QUESTION, heatmap_hint
-    eng = M2F2Engine(model_path, load_4bit=not fp16, model_base=model_base)
+    eng = engine
+    if eng is None:
+        from app.engine import M2F2Engine
+        eng = M2F2Engine(model_path, load_4bit=not fp16, model_base=model_base)
 
     def ask(img, hint):
         eng.ask(img, UI_QUESTION, max_new_tokens=1)
