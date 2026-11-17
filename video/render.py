@@ -204,6 +204,20 @@ def read_frames(video, indices):
     return out
 
 
+def type_caption(rec):
+    """Caption text for the type head. The detector (p_fake) and the 6-way type head are separate outputs and can disagree: for a
+    frame the detector flags, the most likely *fake* type is shown and, if the type head's own top choice is 'real', that is stated
+    instead of silently printing 'type: real' next to a high fake probability."""
+    types = rec['types']
+    if rec['p_fake'] < 0.5:
+        return f"type: {rec['type']}"
+    fake_types = {k: v for k, v in types.items() if k != 'real'}
+    best = max(fake_types, key=fake_types.get)
+    if rec['type'] == 'real':
+        return f"type: {best} (type head leans real, {types['real']:.0%})"
+    return f"type: {best}"
+
+
 def make_tile(frame, rec, forgery_map=None, height=300):
     img = Image.fromarray(frame)
     col = p_color(rec['p_fake'])
@@ -220,7 +234,7 @@ def make_tile(frame, rec, forgery_map=None, height=300):
     tile = Image.new('RGB', (left.size[0] + right.size[0] + 10, height + 26), (30, 30, 30))
     tile.paste(left, (0, 26))
     tile.paste(right, (left.size[0] + 10, 26))
-    ImageDraw.Draw(tile).text((6, 6), f"t = {rec['t']:.1f} s   p(fake) = {rec['p_fake']:.2f}   type: {rec['type']}   "
+    ImageDraw.Draw(tile).text((6, 6), f"t = {rec['t']:.1f} s   p(fake) = {rec['p_fake']:.2f}   {type_caption(rec)}   "
                                       f"marked area: {100 * rec['forgery_area']:.0f}%", fill=col)
     return tile
 

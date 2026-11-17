@@ -13,7 +13,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_video_part1 import make_video          # noqa: E402
-from video.render import BAR_H, render_all, select_key_records, track_name   # noqa: E402
+from video.render import BAR_H, render_all, select_key_records, track_name, type_caption   # noqa: E402
 from video.timeline import build_timeline        # noqa: E402
 
 TYPES = ['real', 'face_swap', 'splice', 'diffusion_local', 'img2img', 'generated']
@@ -61,6 +61,13 @@ def main():
     with open(fj, 'w') as f:
         f.write(json.dumps(header) + '\n' + '\n'.join(json.dumps(r) for r in rows) + '\n')
     json.dump(tl, open(tj, 'w'))
+
+    # type caption: a flagged frame never prints "type: real" bare; a disagreement between the detector and the type head is stated
+    ty = lambda **v: {k: v.get(k, 0.0) for k in TYPES}
+    assert type_caption(dict(p_fake=0.05, type='real', types=ty(real=1.0))) == 'type: real'
+    assert type_caption(dict(p_fake=0.99, type='face_swap', types=ty(real=.1, face_swap=.9))) == 'type: face_swap'
+    c = type_caption(dict(p_fake=0.99, type='real', types=ty(real=.93, face_swap=.05, img2img=.02)))
+    assert c.startswith('type: face_swap') and 'leans real' in c and '93%' in c, c
 
     # key frames of a fake video: only the segment's peak frame (p = 0.95 at t = 5 s), no clean reference frames
     keys = select_key_records(rows, tl, n=6)
