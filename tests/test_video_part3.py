@@ -62,18 +62,24 @@ def main():
         f.write(json.dumps(header) + '\n' + '\n'.join(json.dumps(r) for r in rows) + '\n')
     json.dump(tl, open(tj, 'w'))
 
-    # key frames: the segment's peak frame (p = 0.95 at t = 5 s) and a clean frame from the first shot
+    # key frames of a fake video: only the segment's peak frame (p = 0.95 at t = 5 s), no clean reference frames
     keys = select_key_records(rows, tl, n=6)
-    assert any(r['frame'] == 125 for r in keys), [r['frame'] for r in keys]
-    assert any(r['p_fake'] < 0.5 for r in keys) and 2 <= len(keys) <= 4, [r['frame'] for r in keys]
+    assert [r['frame'] for r in keys] == [125], [r['frame'] for r in keys]
+    # a fake verdict without any segment (scores spread out, isolated) shows the highest-scoring frames, >= 1 s apart, never clean ones
+    sparse = [rec(t, p, 0, 0) for t, p in zip(range(8), (0.9, 0.1, 0.8, 0.1, 0.7, 0.1, 0.9, 0.1))]
+    tl2 = build_timeline(header, sparse)
+    assert not tl2['segments'] and tl2['verdict']['label'] != 'real', tl2['verdict']
+    k2 = select_key_records(sparse, tl2, n=6)
+    assert 1 <= len(k2) <= 3 and all(r['p_fake'] >= 0.7 for r in k2), [(r['t'], r['p_fake']) for r in k2]
     clean_only = build_timeline(header, [rec(t, 0.05, 0, 0) for t in range(4)])
-    assert 1 <= len(select_key_records([rec(t, 0.05, 0, 0) for t in range(4)], clean_only, n=6)) <= 3
+    ck = select_key_records([rec(t, 0.05, 0, 0) for t in range(4)], clean_only, n=6)
+    assert 1 <= len(ck) <= 3 and all(r['p_fake'] < 0.5 for r in ck)    # a real video shows its cleanest frames
 
     out = render_all(v, fj, tj, os.path.join(d, 'out'), engine=StubEngine(), n_key=6)
     im = Image.open(out['timeline_png'])
     assert im.size[0] > 800 and im.size[1] > 300, im.size
     strip = Image.open(out['keyframes_png'])
-    assert strip.size[1] > 2 * 300 and strip.size[0] > 600, strip.size
+    assert strip.size[1] > 300 and strip.size[0] > 600, strip.size    # one tile: only the segment's peak frame
     assert set(out['keyframe_frames']) == {r['frame'] for r in keys}
 
     # annotated video: same frames, bar added, red box in the fake shot, green box in the clean one, bar colour follows

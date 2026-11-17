@@ -37,8 +37,7 @@ Part 3 usage:
 
 Writes `<stem>.timeline.png` (fake probability per face over time, suspect segments shaded, shot cuts dotted),
 `<stem>.annotated.mp4` (every frame with the face box coloured green -> amber -> red by the interpolated score, plus a verdict
-bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment and the cleanest
-frames, each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
+bar with the suspect segments and a playhead) and `<stem>.keyframes.png` (the peak frame of every segment, and only those when the video has segments; the highest-scoring frames for a fake verdict without a segment; the cleanest frames only for a video judged real), each next to the forgery heatmap of its face crop; the heatmaps need `--stagea` / `--m2f2-shard`, otherwise the crops
 are shown plain). Check: `python tests/test_video_part3.py` (needs only the face image used by the Part 1 test).
 
 Part 6 usage: `./run_forensic_ui.sh --stage-c7` (or `python -m app.forensic_webui ...`), open the **Video** tab, upload a clip. One click runs

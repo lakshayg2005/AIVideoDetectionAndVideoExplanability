@@ -6,7 +6,7 @@
 Writes <stem>.timeline.png (fake probability per face over time, suspect segments shaded, shot cuts marked),
 <stem>.annotated.mp4 (every frame: the face box coloured by the interpolated fake probability, plus a verdict bar with the
 suspect segments and a playhead) and <stem>.keyframes.png (the most telling frames: the peak frame of every segment and the
-cleanest frames, each with the forgery heatmap of its face crop). The heatmaps need the model (--stagea / --m2f2-shard);
+the frames shown as examples, each with the forgery heatmap of its face crop). The heatmaps need the model (--stagea / --m2f2-shard);
 without it the strip shows the crops only. Everything else uses the Part 1 / Part 2 files alone.
 """
 import argparse
@@ -165,20 +165,26 @@ def annotate_video(video, header, rows, timeline, out_mp4):
 
 # ------------------------------------------------------------------------------------------------ key frames
 def select_key_records(rows, timeline, n=6):
-    """Peak frame of every suspect segment (most probable first if there are more than n) + the cleanest frames."""
+    """Frames shown as examples. A video with suspect segments shows only their peak frames (most probable first if there are more
+    than n): the evidence, never clean frames. A fake / uncertain verdict without a segment (high scores spread out) shows the
+    highest-scoring frames, at least 1 s apart. Only a video judged real shows its cleanest frames. Returned in time order."""
     by = {(track_name(r), r['frame']): r for r in rows}
     peaks = []
     for s in timeline['segments']:
         cand = [by[(s['track'], f)] for f in s['frames'] if (s['track'], f) in by]
         if cand:
             peaks.append(max(cand, key=lambda r: r['p_fake']))
-    peaks = sorted(peaks, key=lambda r: -r['p_fake'])[:n]
-    used = {(track_name(r), r['frame']) for r in peaks}
-    seg_frames = {(s['track'], f) for s in timeline['segments'] for f in s['frames']}
-    clean = sorted((r for r in rows if (track_name(r), r['frame']) not in seg_frames and (track_name(r), r['frame']) not in used),
-                   key=lambda r: r['p_fake'])
-    take = clean[:max(0, min(2, n - len(peaks)))] if peaks else clean[:min(3, n)]
-    return sorted(peaks + take, key=lambda r: r['t'])
+    if peaks:
+        return sorted(sorted(peaks, key=lambda r: -r['p_fake'])[:n], key=lambda r: r['t'])
+    if timeline['verdict']['label'] != 'real':
+        pick = []
+        for r in sorted(rows, key=lambda r: -r['p_fake']):
+            if all(abs(r['t'] - q['t']) >= 1.0 for q in pick):
+                pick.append(r)
+            if len(pick) == min(3, n):
+                break
+        return sorted(pick, key=lambda r: r['t'])
+    return sorted(sorted(rows, key=lambda r: r['p_fake'])[:min(3, n)], key=lambda r: r['t'])
 
 
 def read_frames(video, indices):
