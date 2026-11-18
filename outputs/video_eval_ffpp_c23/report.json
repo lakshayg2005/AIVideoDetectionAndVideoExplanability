@@ -1,0 +1,46 @@
+{
+ "n_videos": 120,
+ "n_real": 60,
+ "n_fake": 60,
+ "auc": {
+  "mean": 0.6072222222222222,
+  "max": 0.6188888888888889,
+  "segment": 0.6156944444444444
+ },
+ "overall": {
+  "n": 120,
+  "accuracy": 0.5,
+  "uncertain": 0.14166666666666666,
+  "predicted_fake": 0.375,
+  "tpr": 0.43333333333333335,
+  "fpr": 0.31666666666666665
+ },
+ "by_method": {
+  "Deepfakes": {
+   "n_fake": 12,
+   "recall": 0.5833333333333334,
+   "auc_segment": 0.6131944444444445
+  },
+  "Face2Face": {
+   "n_fake": 12,
+   "recall": 0.3333333333333333,
+   "auc_segment": 0.5930555555555556
+  },
+  "FaceShifter": {
+   "n_fake": 12,
+   "recall": 0.25,
+   "auc_segment": 0.5333333333333333
+  },
+  "FaceSwap": {
+   "n_fake": 12,
+   "recall": 0.6666666666666666,
+   "auc_segment": 0.8208333333333333
+  },
+  "NeuralTextures": {
+   "n_fake": 12,
+   "recall": 0.3333333333333333,
+   "auc_segment": 0.5180555555555556
+  }
+ },
+ "skipped": 0
+}
