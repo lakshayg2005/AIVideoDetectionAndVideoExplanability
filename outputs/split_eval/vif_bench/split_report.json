@@ -1,0 +1,58 @@
+{
+ "n_fake": 285,
+ "real_sets": {
+  "real_A": 82,
+  "real_B_2": 83
+ },
+ "alphas": {
+  "0.001": {
+   "per_real_set": {
+    "real_A": {
+     "tau": 8.880598068237306,
+     "fake_recall": 0.0035087719298245615,
+     "real_fpr_on_own_set": 0.0
+    },
+    "real_B_2": {
+     "tau": 10.872678756713869,
+     "fake_recall": 0.0035087719298245615,
+     "real_fpr_on_own_set": 0.0
+    }
+   },
+   "harmonic_mean_fake_recall": 0.0035087719298245615
+  },
+  "0.01": {
+   "per_real_set": {
+    "real_A": {
+     "tau": 8.880598068237306,
+     "fake_recall": 0.0035087719298245615,
+     "real_fpr_on_own_set": 0.0
+    },
+    "real_B_2": {
+     "tau": 10.872678756713869,
+     "fake_recall": 0.0035087719298245615,
+     "real_fpr_on_own_set": 0.0
+    }
+   },
+   "harmonic_mean_fake_recall": 0.0035087719298245615
+  },
+  "0.05": {
+   "per_real_set": {
+    "real_A": {
+     "tau": 6.578886032104492,
+     "fake_recall": 0.007017543859649123,
+     "real_fpr_on_own_set": 0.04878048780487805
+    },
+    "real_B_2": {
+     "tau": 6.500179290771484,
+     "fake_recall": 0.007017543859649123,
+     "real_fpr_on_own_set": 0.04819277108433735
+    }
+   },
+   "harmonic_mean_fake_recall": 0.007017543859649123
+  }
+ },
+ "auroc_vs_pooled_real": 0.4119723551302498,
+ "encoder": "XCLIP-16",
+ "method": "paper",
+ "fake_dir": "/data3/Aditya/bp_data/split_eval/vif/fake"
+}

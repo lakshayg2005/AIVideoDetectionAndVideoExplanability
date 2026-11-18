@@ -1,0 +1,61 @@
+{
+ "encoder": "DINO-base",
+ "n_real_A": 70,
+ "n_real_B": 70,
+ "n_fake": 700,
+ "by_alpha": {
+  "0.01": {
+   "recall_tauA": 0.007142857142857143,
+   "recall_tauB": 0.03428571428571429,
+   "real_B_fpr_at_tauA": 0.0
+  },
+  "0.05": {
+   "recall_tauA": 0.012857142857142857,
+   "recall_tauB": 0.05857142857142857,
+   "real_B_fpr_at_tauA": 0.0
+  },
+  "0.1": {
+   "recall_tauA": 0.07571428571428572,
+   "recall_tauB": 0.1357142857142857,
+   "real_B_fpr_at_tauA": 0.04285714285714286
+  },
+  "0.2": {
+   "recall_tauA": 0.16857142857142857,
+   "recall_tauB": 0.27,
+   "real_B_fpr_at_tauA": 0.12857142857142856
+  }
+ },
+ "by_generator": {
+  "Deepfakes": {
+   "n": 140,
+   "recall_5pct": 0.02142857142857143,
+   "auroc_vs_realB": 0.549795918367347
+  },
+  "Face2Face": {
+   "n": 140,
+   "recall_5pct": 0.014285714285714285,
+   "auroc_vs_realB": 0.5464285714285714
+  },
+  "FaceShifter": {
+   "n": 140,
+   "recall_5pct": 0.007142857142857143,
+   "auroc_vs_realB": 0.5405102040816326
+  },
+  "FaceSwap": {
+   "n": 140,
+   "recall_5pct": 0.014285714285714285,
+   "auroc_vs_realB": 0.5718367346938775
+  },
+  "NeuralTextures": {
+   "n": 140,
+   "recall_5pct": 0.007142857142857143,
+   "auroc_vs_realB": 0.5385714285714286
+  }
+ },
+ "auroc_fake_vs_realB": 0.5494285714285714,
+ "auroc_fake_vs_all_real": 0.5062142857142857,
+ "median": {
+  "real": 0.23066126555204391,
+  "fake": 0.21755410730838776
+ }
+}

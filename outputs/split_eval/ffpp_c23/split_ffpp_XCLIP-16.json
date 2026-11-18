@@ -1,0 +1,61 @@
+{
+ "encoder": "XCLIP-16",
+ "n_real_A": 70,
+ "n_real_B": 70,
+ "n_fake": 700,
+ "by_alpha": {
+  "0.01": {
+   "recall_tauA": 0.002857142857142857,
+   "recall_tauB": 0.011428571428571429,
+   "real_B_fpr_at_tauA": 0.0
+  },
+  "0.05": {
+   "recall_tauA": 0.027142857142857142,
+   "recall_tauB": 0.06142857142857143,
+   "real_B_fpr_at_tauA": 0.014285714285714285
+  },
+  "0.1": {
+   "recall_tauA": 0.06428571428571428,
+   "recall_tauB": 0.16142857142857142,
+   "real_B_fpr_at_tauA": 0.05714285714285714
+  },
+  "0.2": {
+   "recall_tauA": 0.14857142857142858,
+   "recall_tauB": 0.2857142857142857,
+   "real_B_fpr_at_tauA": 0.08571428571428572
+  }
+ },
+ "by_generator": {
+  "Deepfakes": {
+   "n": 140,
+   "recall_5pct": 0.02857142857142857,
+   "auroc_vs_realB": 0.5296938775510204
+  },
+  "Face2Face": {
+   "n": 140,
+   "recall_5pct": 0.007142857142857143,
+   "auroc_vs_realB": 0.5394897959183673
+  },
+  "FaceShifter": {
+   "n": 140,
+   "recall_5pct": 0.03571428571428571,
+   "auroc_vs_realB": 0.5228571428571428
+  },
+  "FaceSwap": {
+   "n": 140,
+   "recall_5pct": 0.04285714285714286,
+   "auroc_vs_realB": 0.5674489795918367
+  },
+  "NeuralTextures": {
+   "n": 140,
+   "recall_5pct": 0.02142857142857143,
+   "auroc_vs_realB": 0.5153061224489797
+  }
+ },
+ "auroc_fake_vs_realB": 0.5349591836734693,
+ "auroc_fake_vs_all_real": 0.5030408163265306,
+ "median": {
+  "real": 0.2739928066730499,
+  "fake": 0.27569054067134857
+ }
+}
